@@ -137,7 +137,6 @@ architecture RTL of M6522 is
   signal t1_r_reset_int    : boolean;
   signal t1_load_counter   : boolean;
   signal t1_reload_counter : boolean;
-  signal t1_toggle         : std_logic;
   signal t1_irq            : std_logic := '0';
 
   -- timer 2
@@ -340,7 +339,7 @@ begin
   end process;
 
   p_read : process(cs, I_RW_L, I_RS, r_irb, r_ira, r_ddrb, r_ddra, t1c, r_t1l_l,
-                   r_t1l_h, t2c, r_sr, r_acr, r_pcr, r_ifr, r_ier, r_orb)
+                   r_t1l_h, t2c, r_sr, r_acr, r_pcr, r_ifr, r_ier, r_ora, r_orb)
   begin
     t1_r_reset_int <= false;
     t2_r_reset_int <= false;
@@ -636,9 +635,7 @@ begin
         t1c_active <= false;
       end if;
 
-      t1_toggle <= '0';
       if t1c_active and t1c_done then
-        t1_toggle <= '1';
         t1_irq <= '1';
       elsif t1_w_reset_int or t1_r_reset_int or (clear_irq(6) = '1') then
         t1_irq <= '0';

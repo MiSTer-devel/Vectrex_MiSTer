@@ -197,7 +197,7 @@ wire       audio_96k = cfg[6];
 wire       ypbpr_en  = cfg[5];
 wire       csync     = cfg[3];
 `ifndef LITE
-wire vga_scaler= cfg[2];
+wire vga_scaler= 1; //cfg[2];
 `endif
 
 reg        cfg_custom_t = 0;

@@ -72,8 +72,7 @@
 --   one sound sample is sent to dac after each character graphic.
 
 ---------------------------------------------------------------------------------
--- Video raster 588*444 < 256k running at 24MHz(25MHz) for VGA 640x480-60Hz 
--- (horizontal display)
+-- Video raster
 --
 --   requires 3 access per cycle =>
 --   | read video scan buffer| Write video scan buffer | write vector beam |
@@ -90,19 +89,12 @@
 --   thus video refresh (VGA) is ok : 4 pixels every 4 clock periods (25MHz)
 --   vector beam is continuously written at 12MHz (seems to be ok)
 --
--- Each vram buffer is 64k (256k/4) x 2bits or 4bits
---
--- 2bits witdh video raster (vram_width) buffer : 
---    vector beam write value = 2
---    video scan decrease this value by 1 after reading at each video frame (60Hz)
---		pixel is displayed full intensity as long as value not equal to 0
---
--- 4bits witdh video raster (vram_width) buffer : 
---    vector beam write value = 2 in lower bits and intensity (0-3) in upper bits
---    video scan decrease the 2 lower bits by 1 after reading at each video frame (60Hz)
---		pixel is displayed upper bits intensity as long as lower bits value not equal to 0
+---------------------------------------------------------------------------------
+-- 
+-- Rasterizer enhancements and color mode by Sorgelig.
 --
 ---------------------------------------------------------------------------------
+
 library ieee;
 use ieee.std_logic_1164.ALL;
 use ieee.std_logic_unsigned.all;
@@ -111,39 +103,44 @@ use ieee.numeric_std.all;
 entity vectrex is
 port
 (
-	clock_24     : in std_logic;
-	clock_12     : in std_logic;
-	reset        : in std_logic;
+	clock		    : in  std_logic;
+	reset        : in  std_logic;
 
-	cart_data    : in std_logic_vector(7 downto 0);
-	cart_addr    : in std_logic_vector(14 downto 0);
-	cart_mask    : in std_logic_vector(14 downto 0);
-	cart_wr      : in std_logic;
+	cart_data    : in  std_logic_vector(7 downto 0);
+	cart_addr    : in  std_logic_vector(14 downto 0);
+	cart_mask    : in  std_logic_vector(14 downto 0);
+	cart_wr      : in  std_logic;
 
-	video_r      : out std_logic_vector(3 downto 0);
-	video_g      : out std_logic_vector(3 downto 0);
-	video_b      : out std_logic_vector(3 downto 0);
+	video_r      : out std_logic_vector(7 downto 0);
+	video_g      : out std_logic_vector(7 downto 0);
+	video_b      : out std_logic_vector(7 downto 0);
 
-	video_hs     : out std_logic;
-	video_vs     : out std_logic;
+	frame_line   : out std_logic;
+	pers         : in  std_logic_vector(4 downto 0);
+	color        : in  std_logic_vector(1 downto 0);
+	overburn     : in  std_logic;
+
+	video_width  : in  std_logic_vector(9 downto 0);
+	video_height : in  std_logic_vector(9 downto 0);
+
 	video_hblank : out std_logic;
 	video_vblank : out std_logic;
 
 	audio_out    : out std_logic_vector(9 downto 0);
 
-	up_1      : in std_logic;
-	dn_1      : in std_logic;
-	lf_1      : in std_logic;
-	rt_1      : in std_logic;
-	pot_x_1   : in signed(7 downto 0);
-	pot_y_1   : in signed(7 downto 0);
+	up_1         : in  std_logic;
+	dn_1         : in  std_logic;
+	lf_1         : in  std_logic;
+	rt_1         : in  std_logic;
+	pot_x_1      : in  signed(7 downto 0);
+	pot_y_1      : in  signed(7 downto 0);
 
-	up_2      : in std_logic;
-	dn_2      : in std_logic;
-	lf_2      : in std_logic;
-	rt_2      : in std_logic;
-	pot_x_2   : in signed(7 downto 0);
-	pot_y_2   : in signed(7 downto 0)
+	up_2         : in  std_logic;
+	dn_2         : in  std_logic;
+	lf_2         : in  std_logic;
+	rt_2         : in  std_logic;
+	pot_x_2      : in  signed(7 downto 0);
+	pot_y_2      : in  signed(7 downto 0)
 );
 end vectrex;
 
@@ -152,166 +149,150 @@ architecture syn of vectrex is
 --------------------------------------------------------------
 -- Configuration
 --------------------------------------------------------------
--- Select catridge rom around line 700
+constant vram_width    : integer := 8;
+constant max_h         : integer := 540; -- have to be multiple of 4
+constant max_v         : integer := 720;
+constant base_res      : integer := 5625;
+
+constant max_x         : integer := base_res*4*8; 
+constant max_y         : integer := base_res*3*8;
 --------------------------------------------------------------
--- intensity level : more or less ram 
--------------------------------------
--- requires also comment/uncomment at two other places below
---
--- constant vram_width : integer := 2; -- no intensity level
-	constant vram_width : integer := 4;  -- 3 intensity level
---------------------------------------------------------------
--- horizontal display (comment/uncomment whole section)
----------------------
--- constant horizontal_display : integer := 1;
--- constant max_h           : integer := 588; -- have to be multiple of 4
--- constant max_v           : integer := 444; 
--- constant max_x           : integer := 16875*8;
--- constant max_y           : integer := 22500*8; 
--- constant vram_addr_width : integer := 16;  -- 64k vram buffer (x4)
--- constant video_start_h   : integer := 160;
--- constant video_start_v   : integer := 50;
---------------------------------------------------------------
--- vertical display (comment/uncomment whole section)
--------------------
- constant horizontal_display : integer := 0;
- constant max_h              : integer := 308; -- have to be multiple of 4
- constant max_v              : integer := 412;
- constant max_x              : integer := 22500*8;
- constant max_y              : integer := 16875*8;
- constant vram_addr_width    : integer := 15;  -- 32k vram buffer (x4)
- constant video_start_h      : integer := 300;
- constant video_start_v      : integer := 70;
---------------------------------------------------------------
- 
- signal clock_24n : std_logic;
- signal clock_div : std_logic_vector(2 downto 0);
 
- signal cpu_clock  : std_logic;
- signal cpu_addr   : std_logic_vector(15 downto 0);
- signal cpu_di     : std_logic_vector( 7 downto 0);
- signal cpu_do     : std_logic_vector( 7 downto 0);
- signal cpu_rw     : std_logic;
- signal cpu_irq    : std_logic;
- signal cpu_firq   : std_logic;
+signal clock_div : std_logic_vector(2 downto 0);
+signal clken_12  : std_logic;
 
- signal ram_cs   : std_logic;
- signal ram_do   : std_logic_vector( 7 downto 0);
- signal ram_we   : std_logic;
+signal cpu_en     : std_logic;
+signal cpu_addr   : std_logic_vector(15 downto 0);
+signal cpu_di     : std_logic_vector( 7 downto 0);
+signal cpu_do     : std_logic_vector( 7 downto 0);
+signal cpu_rw     : std_logic;
+signal cpu_irq    : std_logic;
+signal cpu_firq   : std_logic;
 
- signal rom_cs   : std_logic;
- signal rom_do   : std_logic_vector( 7 downto 0);
+signal ram_cs   : std_logic;
+signal ram_do   : std_logic_vector( 7 downto 0);
+signal ram_we   : std_logic;
 
- signal cart_cs  : std_logic;
- signal cart_do  : std_logic_vector( 7 downto 0);
+signal rom_cs   : std_logic;
+signal rom_do   : std_logic_vector( 7 downto 0);
 
- signal via_cs_n  : std_logic;
- signal via_do    : std_logic_vector(7 downto 0);
- signal via_ca2_o : std_logic;
- signal via_cb2_o : std_logic;
- signal via_pa_i  : std_logic_vector(7 downto 0);
- signal via_pa_o  : std_logic_vector(7 downto 0);
- signal via_pb_i  : std_logic_vector(7 downto 0);
- signal via_pb_o  : std_logic_vector(7 downto 0);
- signal via_irq_n : std_logic;
- signal via_en_4  : std_logic;
- 
- signal sh_dac  : std_logic;
- signal dac_mux : std_logic_vector(2 downto 1);
- signal zero_integrator_n : std_logic;
- signal ramp_integrator_n : std_logic;
- signal beam_blank_n      : std_logic;
-  
- signal dac       : signed(8 downto 0);
- signal dac_y     : signed(8 downto 0);
- signal dac_z     : unsigned(7 downto 0);
- signal ref_level : signed(8 downto 0);
- signal z_level   : std_logic_vector(1 downto 0);
- signal dac_sound : std_logic_vector(7 downto 0);
- 
- signal integrator_x : signed(19 downto 0);
- signal integrator_y : signed(19 downto 0);
+signal cart_cs  : std_logic;
+signal cart_do  : std_logic_vector( 7 downto 0);
 
- signal shifted_x : signed(19 downto 0);
- signal shifted_y : signed(19 downto 0);
+signal via_cs_n  : std_logic;
+signal via_do    : std_logic_vector(7 downto 0);
+signal via_ca2_o : std_logic;
+signal via_cb2_o : std_logic;
+signal via_pa_o  : std_logic_vector(7 downto 0);
+signal via_pb_o  : std_logic_vector(7 downto 0);
+signal via_irq_n : std_logic;
+signal via_en_4  : std_logic;
 
- signal limited_x : unsigned(19 downto 0);
- signal limited_y : unsigned(19 downto 0);
+signal sh_dac  : std_logic;
+signal dac_mux : std_logic_vector(2 downto 1);
+signal zero_integrator_n : std_logic;
+signal ramp_integrator_n : std_logic;
+signal beam_blank_n      : std_logic;
 
- signal beam_h : unsigned(9 downto 0);
- signal beam_v : unsigned(9 downto 0);
-  
- constant offset_y : integer := 0;
- constant offset_x : integer := 0;
- 
- constant scale_x : integer := max_v*256*256/(2*max_x); 
- constant scale_y : integer := max_h*256*256/(2*max_y);
- 
- signal beam_blank_buffer    : std_logic_vector(5 downto 0);
- signal beam_blank_n_delayed : std_logic;
+signal dac       : signed(8 downto 0);
+signal dac_y     : signed(8 downto 0);
+signal dac_z     : std_logic_vector(7 downto 0);
+signal ref_level : signed(8 downto 0);
+signal dac_sound : std_logic_vector(7 downto 0);
 
- signal beam_video_addr : std_logic_vector(19 downto 0);
- signal scan_video_addr : std_logic_vector(19 downto 0);
- signal video_addr      : std_logic_vector(16 downto 0);
- 
- signal phase : std_logic_vector(1 downto 0);
- 
- signal video_we_0 : std_logic;
- signal video_we_1 : std_logic;
- signal video_we_2 : std_logic;
- signal video_we_3 : std_logic;
- signal video_rd   : std_logic;
- signal video_pixel: std_logic_vector(3 downto 0);
- 
- signal read_0 : std_logic_vector(vram_width-1 downto 0);
- signal read_0b: std_logic_vector(vram_width-1 downto 0);
- signal read_1 : std_logic_vector(vram_width-1 downto 0);
- signal read_1b: std_logic_vector(vram_width-1 downto 0);
- signal read_2 : std_logic_vector(vram_width-1 downto 0);
- signal read_2b: std_logic_vector(vram_width-1 downto 0);
- signal read_3 : std_logic_vector(vram_width-1 downto 0);
- signal read_3b: std_logic_vector(vram_width-1 downto 0);
- signal pixel  : std_logic_vector(vram_width-1 downto 0);
- 
- signal write_0 : std_logic_vector(vram_width-1 downto 0);
- signal write_1 : std_logic_vector(vram_width-1 downto 0);
- signal write_2 : std_logic_vector(vram_width-1 downto 0);
- signal write_3 : std_logic_vector(vram_width-1 downto 0);
- 
- signal hcnt : std_logic_vector(9 downto 0);
- signal vcnt : std_logic_vector(9 downto 0);	
- signal hcnt_video : std_logic_vector(9 downto 0);
- signal vcnt_video : std_logic_vector(9 downto 0);
- 
- signal hblank : std_logic;
- signal vblank : std_logic;
+signal integrator_x : signed(19 downto 0);
+signal integrator_y : signed(19 downto 0);
 
- signal frame_line : std_logic;
+signal shifted_x : signed(19 downto 0);
+signal shifted_y : signed(19 downto 0);
+
+signal limited_x : integer;
+signal limited_y : integer;
+
+signal beam_h  : unsigned(9 downto 0);
+signal beam_v  : unsigned(9 downto 0);
+
+signal beam_hd : unsigned(9 downto 0);
+signal beam_vd : unsigned(9 downto 0);
+signal beam_cnt : integer;
+
+signal beam_blank_buffer    : std_logic_vector(5 downto 0);
+signal beam_blank_n_delayed : std_logic;
+
+signal beam_video_addr : std_logic_vector(19 downto 0);
+signal scan_video_addr : std_logic_vector(19 downto 0);
+signal video_addr      : std_logic_vector(17 downto 0);
+
+signal phase : std_logic_vector(1 downto 0);
+
+signal video_we_0 : std_logic;
+signal video_we_1 : std_logic;
+signal video_we_2 : std_logic;
+signal video_we_3 : std_logic;
+signal video_rd   : std_logic;
+signal video_pixel: std_logic_vector(7 downto 0);
+
+signal read_0 : std_logic_vector(vram_width-1 downto 0);
+signal read_0b: std_logic_vector(vram_width-1 downto 0);
+signal read_1 : std_logic_vector(vram_width-1 downto 0);
+signal read_1b: std_logic_vector(vram_width-1 downto 0);
+signal read_2 : std_logic_vector(vram_width-1 downto 0);
+signal read_2b: std_logic_vector(vram_width-1 downto 0);
+signal read_3 : std_logic_vector(vram_width-1 downto 0);
+signal read_3b: std_logic_vector(vram_width-1 downto 0);
+signal pixel  : std_logic_vector(vram_width-1 downto 0);
+
+signal write_0 : std_logic_vector(vram_width-1 downto 0);
+signal write_1 : std_logic_vector(vram_width-1 downto 0);
+signal write_2 : std_logic_vector(vram_width-1 downto 0);
+signal write_3 : std_logic_vector(vram_width-1 downto 0);
+
+signal hcnt : std_logic_vector(9 downto 0);
+signal vcnt : std_logic_vector(9 downto 0);	
+
+signal hblank : std_logic;
+signal vblank : std_logic;
+
+signal ay_do          : std_logic_vector(7 downto 0);
+signal ay_chan_a      : std_logic_vector(7 downto 0);
+signal ay_chan_b      : std_logic_vector(7 downto 0);
+signal ay_chan_c      : std_logic_vector(7 downto 0);
+
+signal pot     : signed(7 downto 0);
+signal compare : std_logic;
+signal players_switches : std_logic_vector(7 downto 0);
  
- signal ay_do          : std_logic_vector(7 downto 0);
- signal ay_audio_muxed : std_logic_vector(7 downto 0);
- signal ay_audio_chan  : std_logic_vector(1 downto 0);
- signal ay_chan_a      : std_logic_vector(7 downto 0);
- signal ay_chan_b      : std_logic_vector(7 downto 0);
- signal ay_chan_c      : std_logic_vector(7 downto 0);
- 
- signal pot     : signed(7 downto 0);
- signal compare : std_logic;
- signal players_switches : std_logic_vector(7 downto 0);
+signal pix_g,pix_r,pix_b : std_logic;
+signal subt    : std_logic_vector(7 downto 0);
+signal mask    : std_logic_vector(7 downto 0);
+signal pix     : std_logic_vector(7 downto 0);
+signal pix_fx  : std_logic_vector(7 downto 0);
+signal pix_c   : std_logic_vector(7 downto 0);
+signal pix_cc  : std_logic_vector(7 downto 0);
+signal dac_ob  : std_logic_vector(7 downto 0);
+
+component ym2149 is port
+(
+	CLK       : in  std_logic;
+	CE        : in  std_logic;
+	RESET     : in  std_logic;
+	BDIR      : in  std_logic;
+	BC        : in  std_logic;
+	DI        : in  std_logic_vector(7 downto 0);
+	DO        : out std_logic_vector(7 downto 0);
+	CHANNEL_A : out std_logic_vector(7 downto 0);
+	CHANNEL_B : out std_logic_vector(7 downto 0);
+	CHANNEL_C : out std_logic_vector(7 downto 0);
+	SEL       : in  std_logic;
+	MODE      : in  std_logic;
+	IOA_in    : in  std_logic_vector(7 downto 0);
+	IOA_out   : out std_logic_vector(7 downto 0);
+	IOB_in    : in  std_logic_vector(7 downto 0);
+	IOB_out   : out std_logic_vector(7 downto 0)
+);
+end component ym2149; 
  
 begin
-
--- clocks
-clock_24n <= not clock_24;
-  
-process (clock_12)  begin
-	if rising_edge(clock_12) then
-		clock_div <= clock_div + '1';
-	end if;
-end process;
-
-via_en_4  <= clock_div(0);
-cpu_clock <= clock_div(2);
 
 --static ADDRESS_MAP_START(vectrex_map, AS_PROGRAM, 8, vectrex_state )
 --	AM_RANGE(0x0000, 0x7fff) AM_NOP // cart area, handled at machine_start
@@ -339,9 +320,6 @@ cpu_di <= cart_do when cart_cs  = '1' else
 			 rom_do  when rom_cs   = '1' else
 			 X"00";
 
-via_pa_i <= ay_do;
-via_pb_i <= "00"&compare&"00000";
-
 -- players controls
 players_switches <= not(rt_2&lf_2&dn_2&up_2&rt_1&lf_1&dn_1&up_1);
 
@@ -362,72 +340,79 @@ beam_blank_n      <= via_cb2_o;
 			 			 
 dac <= signed(via_pa_o(7)&via_pa_o); -- must ensure sign extension for 0x80 value to be used in integrator equation
 
-z_level <=  "11" when dac_z > 128 else 
-				"10" when dac_Z >  64 else
-				"01" when dac_z >   0 else 
-				"00";
-
-process (clock_12)
+process (clock)
 	variable limit_n : std_logic;
 begin
-	if rising_edge(clock_12) then
-		if sh_dac = '0' then
-			case dac_mux is
-			when "00"   => dac_y     <= dac;
-			when "01"   => ref_level <= dac;
-			when "10"   => dac_z     <= unsigned(via_pa_o);
-			when others => dac_sound <= via_pa_o;
-			end case;
-		end if;
+	if rising_edge(clock) then
+		via_en_4 <= '0';
+		cpu_en   <= '0';
 
-		if zero_integrator_n = '0' then
-			integrator_x <= (others=>'0');
-			integrator_y <= (others=>'0');
-		else
-			if ramp_integrator_n = '0' then
-				if horizontal_display = 1 then 
-					integrator_x <= integrator_x + (ref_level - dac);   -- horizontal display
-					integrator_y <= integrator_y + (ref_level - dac_y); -- horizontal display
-				else
-					integrator_x <= integrator_x + (ref_level - dac_y); -- vertical display
-					integrator_y <= integrator_y - (ref_level - dac);   -- vertical display
+		if clken_12 = '1' then
+			clock_div <= clock_div + '1';
+			
+			if clock_div(0) = '0' then via_en_4 <= '1'; end if;
+			if clock_div = "011"  then cpu_en   <= '1'; end if;
+
+			if sh_dac = '0' then
+				case dac_mux is
+				when "00"   => dac_y     <= dac;
+				when "01"   => ref_level <= dac;
+				when "10"   => dac_z     <= via_pa_o;
+				when others => dac_sound <= via_pa_o;
+				end case;
+			end if;
+
+			if zero_integrator_n = '0' then
+				integrator_x <= (others=>'0');
+				integrator_y <= (others=>'0');
+			else
+				if ramp_integrator_n = '0' then
+					integrator_x <= integrator_x + (ref_level - dac_y);
+					integrator_y <= integrator_y - (ref_level - dac);
 				end if;
 			end if;
+
+			-- set 'preserve registers' wihtin assignments editor to ease signaltap debuging
+
+			shifted_x <= integrator_x+max_x;
+			shifted_y <= integrator_y+max_y;
+			
+			-- limit and scaling should be enhanced
+			
+			limit_n := '1';
+			if    shifted_x > 2*max_x then limited_x <= 2*max_x; limit_n := '0'; 
+			elsif shifted_x < 0       then limited_x <= 0;       limit_n := '0'; 
+			else                           limited_x <= to_integer(unsigned(shifted_x)); end if;
+						
+			if    shifted_y > 2*max_y then limited_y <= 2*max_y; limit_n := '0'; 
+			elsif shifted_y < 0       then limited_y <= 0; 		  limit_n := '0'; 
+			else                           limited_y <= to_integer(unsigned(shifted_y)); end if;
+
+			-- integer computation to try making rounding computation during division 
+
+			beam_v <= to_unsigned((limited_x*to_integer(unsigned(video_height)))/(2*max_x),10);
+			beam_h <= to_unsigned((limited_y*to_integer(unsigned(video_width)))/(2*max_y),10);		
+
+			beam_video_addr <= std_logic_vector(beam_v * unsigned(video_width) + beam_h);
+
+			-- compense beam_video_addr computation delay vs beam_blank
+
+			beam_blank_buffer <= beam_blank_buffer(4 downto 0) & beam_blank_n;
+
+			beam_blank_n_delayed <= beam_blank_buffer(3) and limit_n;
+
+			beam_hd <= beam_h;
+			beam_vd <= beam_v;
+
+			if(beam_blank_n_delayed = '1' and beam_v = beam_vd and beam_h = beam_hd) then
+				if(dac_ob < 255) then
+					dac_ob <= dac_ob + 5;
+				end if;
+			else
+				dac_ob <= (others => '0');
+			end if;
+
 		end if;
-		
-		-- set 'preserve registers' wihtin assignments editor to ease signaltap debuging
-
-		shifted_x <= integrator_x+max_x-offset_x;
-		shifted_y <= integrator_y+max_y-offset_y;
-		
-		-- limit and scaling should be enhanced
-		
-		limit_n := '1';
-		if    shifted_x > 2*max_x then limited_x <= to_unsigned(2*max_x,20);
-												 limit_n := '0'; 
-		elsif shifted_x < 0       then limited_x <= (others=>'0');
-												 limit_n := '0'; 
-		else                           limited_x <= unsigned(shifted_x); end if;
-					
-		if    shifted_y > 2*max_y then limited_y <= to_unsigned(2*max_y,20);
-												 limit_n := '0'; 
-		elsif shifted_y < 0       then limited_y <= (others=>'0');
-												 limit_n := '0'; 
-		else                           limited_y <= unsigned(shifted_y); end if;
-		
-		-- integer computation to try making rounding computation during division 
-
-		beam_v <= to_unsigned(to_integer(limited_x*to_unsigned(scale_x,10))/(256*256),10);
-		beam_h <= to_unsigned(to_integer(limited_y*to_unsigned(scale_y,10))/(256*256),10);			
-					
-		beam_video_addr <= std_logic_vector(beam_v * to_unsigned(max_h,10) + beam_h);
-		
-		-- compense beam_video_addr computation delay vs beam_blank
-		
-		beam_blank_buffer <= beam_blank_buffer(4 downto 0) & beam_blank_n;
-		
-		beam_blank_n_delayed <= beam_blank_buffer(3) and limit_n;
-					
 	end if;
 end process;
 
@@ -438,65 +423,45 @@ end process;
 -- |read previous pixels| write beam pixel | write updated pixels | write beam pixel |
 -- |from the 4 buffers  | to one buffer    | to the 4 buffers     | to one buffer    |
 --
--- Persistance simulation :
--- beam pixel are written as value 2
--- updated pixels is written as previous value-1
--- previous pixels are demuxed (serialized) and send to display
--- pixel is ON if value > 0
---
--- Intensity simulation :
--- if used (vram_witdh = 4) intensity is written by beam or read by scanner simultaneoulsy
--- with pixels. Its value is never modified.
---
--- Compared to real hardware : 
---   - fixed beam position has no effect on diplayed intensity.
---   - persitance management may show double trace for fast moving object
---   - flicker may appear where only lower intensity will be seen
---
-process (clock_24)
+process (clock)
 begin
-	if rising_edge(clock_24) then
-		phase <= hcnt_video(1 downto 0);	
-		
+	if rising_edge(clock) then
+		phase <= hcnt(1 downto 0);	
+
 		video_we_0 <= '0';
 		video_we_1 <= '0';
 		video_we_2 <= '0';
 		video_we_3 <= '0';
-		
+		clken_12   <= '0';
+
 		case phase is
 			when "00" =>
-				video_addr <= scan_video_addr(18 downto 2);
-				
+				video_addr <= scan_video_addr(19 downto 2);
+
 			when "10" =>
-				video_addr <= scan_video_addr(18 downto 2);
+				video_addr <= scan_video_addr(19 downto 2);
 				if hblank = '0' and vblank = '0' then
-					if read_0(1 downto 0) > "00" then video_we_0 <= '1'; write_0 <= read_0 - '1'; end if;
-					if read_1(1 downto 0) > "00" then video_we_1 <= '1'; write_1 <= read_1 - '1'; end if;
-					if read_2(1 downto 0) > "00" then video_we_2 <= '1'; write_2 <= read_2 - '1'; end if;
-					if read_3(1 downto 0) > "00" then video_we_3 <= '1'; write_3 <= read_3 - '1'; end if;
+					if read_0 > X"00" then video_we_0 <= '1'; if((read_0 and mask) > subt) then write_0 <= read_0 - subt; else write_0 <= (others => '0'); end if; end if;
+					if read_1 > X"00" then video_we_1 <= '1'; if((read_1 and mask) > subt) then write_1 <= read_1 - subt; else write_1 <= (others => '0'); end if; end if;
+					if read_2 > X"00" then video_we_2 <= '1'; if((read_2 and mask) > subt) then write_2 <= read_2 - subt; else write_2 <= (others => '0'); end if; end if;
+					if read_3 > X"00" then video_we_3 <= '1'; if((read_3 and mask) > subt) then write_3 <= read_3 - subt; else write_3 <= (others => '0'); end if; end if;
 				end if;
-				
+
 			when others =>
-				video_addr <= beam_video_addr(18 downto 2);
+				clken_12 <= '1';
+				video_addr <= beam_video_addr(19 downto 2);
 				if beam_blank_n_delayed = '1' then
 					case beam_video_addr(1 downto 0) is
-					
--- uncomment when vram_width is 4
-						when "00"   => video_we_0 <= '1'; write_0 <= z_level&"10"; 
-						when "01"   => video_we_1 <= '1'; write_1 <= z_level&"10";
-						when "10"   => video_we_2 <= '1'; write_2 <= z_level&"10";
-						when others => video_we_3 <= '1'; write_3 <= z_level&"10";
 
--- uncomment when vram_width is 2
---						when "00"   => video_we_0 <= '1'; write_0 <= "10";
---						when "01"   => video_we_1 <= '1'; write_1 <= "10";
---						when "10"   => video_we_2 <= '1'; write_2 <= "10";
---						when others => video_we_3 <= '1'; write_3 <= "10";
---							
+						when "00"   => video_we_0 <= '1'; write_0 <= pix; 
+						when "01"   => video_we_1 <= '1'; write_1 <= pix;
+						when "10"   => video_we_2 <= '1'; write_2 <= pix;
+						when others => video_we_3 <= '1'; write_3 <= pix;
+
 					end case;
-				end if;	
+				end if;
 		end case;
-		
+
 		if phase = "01" then
 			read_0 <= read_0b;
 			read_1 <= read_1b;
@@ -510,88 +475,70 @@ begin
 			when "00"   => pixel <= read_2;
 			when others => pixel <= read_3;
 		end case;
-		
+
 	end if;
 end process;
 
--- uncomment when vram_width is 4
---
-video_pixel <= pixel(3 downto 2)&"00" when (pixel(1 downto 0) > "00") and (hblank = '0') else "0000";
---
--- uncomment when vram_width is 2
---
---video_pixel <= "1100" when (pixel(1 downto 0) > "00") and (hblank = '0') else "0000";
---
+pix_fx<= dac_z(6 downto 0)&dac_z(6) when overburn = '0' else X"FF" when (to_integer(unsigned(dac_z))+to_integer(unsigned(dac_ob)))>255 else dac_z+dac_ob;
 
-video_g <= video_pixel when frame_line = '0' else video_pixel or "0000";
-video_b <= video_pixel when frame_line = '0' else video_pixel or "0000";
-video_r <= video_pixel when frame_line = '0' else video_pixel or "0100";
+subt  <= pers&"000" when color = "00" else "000"&pers;
+mask  <= "11111111" when color = "00" else "00011111";
+pix   <= pix_fx     when color = "00" else (via_pa_o(7) or via_pa_o(6) or via_pa_o(5) or via_pa_o(4))&(via_pa_o(3) or via_pa_o(2))&(via_pa_o(1) or via_pa_o(0))&pix_fx(7 downto 3);
 
-buf_0 : entity work.gen_ram
-generic map( dWidth => vram_width, aWidth => vram_addr_width)
-port map( clk => clock_24n, we => video_we_0, addr => video_addr(vram_addr_width-1 downto 0),
-          d   => write_0,   q  => read_0b);
+pix_g <= pixel(7) or not (pixel(6) or pixel(5));
+pix_r <= pixel(6) or not (pixel(7) or pixel(5));
+pix_b <= pixel(5) or not (pixel(7) or pixel(6));
+pix_c <= pixel(4 downto 0)&pixel(4 downto 2);
+pix_cc<= std_logic_vector(shift_right(unsigned(pix_c), to_integer(unsigned(color))));
 
-buf_1 : entity work.gen_ram
-generic map( dWidth => vram_width, aWidth => vram_addr_width)
-port map( clk => clock_24n, we => video_we_1, addr => video_addr(vram_addr_width-1 downto 0),
-          d   => write_1,   q  => read_1b);
+video_r <= pixel when color = "00" else pix_c when pix_r = '1' else pix_cc;
+video_g <= pixel when color = "00" else pix_c when pix_g = '1' else pix_cc;
+video_b <= pixel when color = "00" else pix_c when pix_b = '1' else pix_cc;
 
-buf_2 : entity work.gen_ram
-generic map( dWidth => vram_width, aWidth => vram_addr_width)
-port map( clk => clock_24n, we => video_we_2, addr => video_addr(vram_addr_width-1 downto 0),
-          d   => write_2,   q  => read_2b);
+buf_0 : entity work.gen_ram generic map( dWidth => vram_width, aWidth => 18, nWords => max_h*max_v/4)
+port map( clk => not clock, we => video_we_0, addr => video_addr, d => write_0, q => read_0b);
 
-buf_3 : entity work.gen_ram
-generic map( dWidth => vram_width, aWidth => vram_addr_width)
-port map( clk => clock_24n, we => video_we_3, addr => video_addr(vram_addr_width-1 downto 0),
-          d   => write_3,   q  => read_3b);
-			 
+buf_1 : entity work.gen_ram generic map( dWidth => vram_width, aWidth => 18, nWords => max_h*max_v/4)
+port map( clk => not clock, we => video_we_1, addr => video_addr, d => write_1, q => read_1b);
+
+buf_2 : entity work.gen_ram generic map( dWidth => vram_width, aWidth => 18, nWords => max_h*max_v/4)
+port map( clk => not clock, we => video_we_2, addr => video_addr, d => write_2, q => read_2b);
+
+buf_3 : entity work.gen_ram generic map( dWidth => vram_width, aWidth => 18, nWords => max_h*max_v/4)
+port map( clk => not clock, we => video_we_3, addr => video_addr, d => write_3, q => read_3b);
+
 -------------------
 -- Video scanner --
 -------------------
-process (clock_24)
+process (clock)
 begin
-	if rising_edge(clock_24) then
+	if rising_edge(clock) then
 	
 		hcnt <= hcnt + '1';
-		if hcnt = 799 then 
+		if hcnt = 559 then 
 			hcnt <= (others => '0');
-			if vcnt = 523 then 
+			if vcnt = 748 then 
 				vcnt <= (others => '0');
 			else
 				vcnt <= vcnt + '1';
 			end if;
-			if vcnt = 523 then video_vs <= '0'; end if;
-			if vcnt =   1 then video_vs <= '1'; end if;
 		end if;			
 		
-		if hcnt = 799 then video_hs <= '0'; end if;
-		if hcnt =  90 then video_hs <= '1'; end if;
-		
-		if vcnt_video = 0 or vcnt_video = (max_v-1) then
-			if hcnt_video = 3       then frame_line <= '1'; end if;
-			if hcnt_video = max_h+3 then frame_line <= '0'; end if;				
-		elsif vcnt_video > 0 and vcnt_video < (max_v-1) then 
-			  if hcnt_video = 3 or hcnt_video = max_h+2 then frame_line <= '1';
-			  else frame_line <= '0'; end if;
-		else frame_line <= '0';	end if;
-		
-		if hcnt = video_start_h then 
-			hcnt_video <= (others => '0');
-			if vcnt = video_start_v then 
-				vcnt_video <= (others => '0');
+		if vcnt = 0 or vcnt = (video_height-1) then
+			if hcnt = 3             then frame_line <= '1'; end if;
+			if hcnt = video_width+3 then frame_line <= '0'; end if;				
+		elsif vcnt > 0 and vcnt < (video_height-1) then 
+			if hcnt = 3 or hcnt = video_width+2 then
+				frame_line <= '1';
 			else
-				vcnt_video <= vcnt_video + '1';
+				frame_line <= '0';
 			end if;
-		else
-			hcnt_video <= hcnt_video + '1';
-		end if;	
+		else frame_line <= '0';	end if;
 
-		if hcnt_video =       3 then hblank <= '0'; end if;
-		if hcnt_video = max_h+3 then hblank <= '1'; end if;
-		if vcnt_video =       0 then vblank <= '0'; end if;			
-		if vcnt_video =   max_v then vblank <= '1'; end if;
+		if hcnt =             3 then hblank <= '0'; end if;
+		if hcnt = video_width+3 then hblank <= '1'; end if;
+		if vcnt =             0 then vblank <= '0'; end if;			
+		if vcnt = video_height  then vblank <= '1'; end if;
 		
 	end if;
 end process;
@@ -599,23 +546,8 @@ end process;
 video_hblank <= hblank;
 video_vblank <= vblank;
 
-scan_video_addr <= vcnt_video * std_logic_vector(to_unsigned(max_h,10)) + hcnt_video;
-		
--- sound	
-process (cpu_clock)
-begin
-	if rising_edge(cpu_clock) then
-		if ay_audio_chan = "00" then ay_chan_a <= ay_audio_muxed; end if;
-		if ay_audio_chan = "01" then ay_chan_b <= ay_audio_muxed; end if;
-		if ay_audio_chan = "10" then ay_chan_c <= ay_audio_muxed; end if;
-	end if;	
-end process;
+scan_video_addr <= vcnt * video_width + hcnt;
 
-audio_out <= 	("00"&ay_chan_a) +
-					("00"&ay_chan_b) +
-					("00"&ay_chan_c) +
-					("00"&dac_sound);
-	
 ---------------------------
 -- components
 ---------------------------			
@@ -623,7 +555,8 @@ audio_out <= 	("00"&ay_chan_a) +
 -- microprocessor 6809
 main_cpu : entity work.cpu09
 port map(	
-	clk      => cpu_clock,-- E clock input (falling edge)
+	clk      => clock,    -- E clock input (falling edge)
+	ce       => cpu_en,
 	rst      => reset,    -- reset input (active high)
 	vma      => open,     -- valid memory address (active high)
    lic_out  => open,     -- last instruction cycle (active high)
@@ -638,14 +571,13 @@ port map(
 	irq      => cpu_irq,  -- interrupt request input (active high)
 	firq     => cpu_firq, -- fast interrupt request input (active high)
 	nmi      => '0',      -- non maskable interrupt request input (active high)
-	halt     => '0',      -- halt input (active high) grants DMA
-	hold_in  => '0'       -- hold input (active high) extend bus cycle
+	halt     => '0'       -- halt input (active high) grants DMA
 );
 
 		
 cpu_prog_rom : entity work.bios_rom
 port map(
-	clk  => cpu_clock,
+	clk  => clock,
 	addr => cpu_addr(12 downto 0),
 	data => rom_do
 );
@@ -657,10 +589,10 @@ port map
 (
 	data	=> cart_data,
 	wraddress => cart_addr,
-	wrclock	=> clock_12,
+	wrclock	=> clock,
 	wren	=> cart_wr,
 
-	rdclock => cpu_clock,
+	rdclock => clock,
 	rdaddress => (cpu_addr(14 downto 0) and cart_mask),
 	q => cart_do
 );
@@ -668,14 +600,20 @@ port map
 --------------------------------------------------------------------
 
 working_ram : entity work.gen_dpram
+generic map
+(
+	 addr_width_g => 10,
+	 data_width_g => 8
+)
 port map
 (
-	clock_a		=> clock_12,
+	clock_a		=> clock,
 	address_a	=> cart_addr(9 downto 0),
 	data_a		=> (others => '0'),
 	wren_a		=> cart_wr,
 
-	clock_b		=> cpu_clock,
+	clock_b		=> clock,
+	enable_b    => cpu_en,
 	wren_b		=> ram_we,
 	address_b	=> cpu_addr(9 downto 0),
 	data_b		=> cpu_do,
@@ -701,7 +639,7 @@ port map(
 	O_CA2           => via_ca2_o,
 	O_CA2_OE_L      => open,
 
-	I_PA            => via_pa_i,
+	I_PA            => ay_do,
 	O_PA            => via_pa_o,
 	O_PA_OE_L       => open,
 
@@ -714,46 +652,39 @@ port map(
 	O_CB2           => via_cb2_o,
 	O_CB2_OE_L      => open,
 
-	I_PB            => via_pb_i,
+	I_PB            => "00"&compare&"00000",
 	O_PB            => via_pb_o,
 	O_PB_OE_L       => open,
 
 	RESET_L         => not reset,
-	CLK             => clock_12,
-	I_P2_H          => cpu_clock,    -- high for phase 2 clock  ____----__
-	ENA_4           => via_en_4      -- 4x system clock (4HZ)   _-_-_-_-_-
+	CLK             => clock,
+	I_P2_H          => clock_div(2),  -- high for phase 2 clock  ____----__
+	ENA_4           => via_en_4       -- 4x system clock (4HZ)   _-_-_-_-_-
 );
 
 -- AY-3-8910
-ay_3_8910_2 : entity work.YM2149
-port map(
-	-- data bus
-	I_DA       => via_pa_o,    -- in  std_logic_vector(7 downto 0);
-	O_DA       => ay_do,     -- out std_logic_vector(7 downto 0);
-	O_DA_OE_L  => open,      -- out std_logic;
-	-- control
-	I_A9_L     => '0',       -- in  std_logic;
-	I_A8       => '1',       -- in  std_logic;
-	I_BDIR     => via_pb_o(4),  -- in  std_logic;
-	I_BC2      => '1',       -- in  std_logic;
-	I_BC1      => via_pb_o(3),   -- in  std_logic;
-	I_SEL_L    => '0',       -- in  std_logic;
-
-	O_AUDIO    => ay_audio_muxed, -- out std_logic_vector(7 downto 0);
-	O_CHAN     => ay_audio_chan,  -- out std_logic_vector(1 downto 0);
-
-	-- port a
-	I_IOA      => players_switches, -- in  std_logic_vector(7 downto 0);
-	O_IOA      => open,            -- out std_logic_vector(7 downto 0);
-	O_IOA_OE_L => open,            -- out std_logic;
-	-- port b
-	I_IOB      => (others => '0'), -- in  std_logic_vector(7 downto 0);
-	O_IOB      => open,            -- out std_logic_vector(7 downto 0);
-	O_IOB_OE_L => open,            -- out std_logic;
-
-	ENA        => '1', --cpu_ena,         -- in  std_logic; -- clock enable for higher speed operation
-	RESET_L    => not reset,        -- in  std_logic;
-	CLK        => cpu_clock        -- in  std_logic  -- note 6 Mhz
+ym2149_inst : ym2149 
+port map
+(
+	CLK       => clock,
+	CE        => cpu_en,
+	RESET     => reset,
+	BDIR      => via_pb_o(4),
+	BC        => via_pb_o(3),
+	DI        => via_pa_o,
+	DO        => ay_do,
+	CHANNEL_A => ay_chan_a,
+	CHANNEL_B => ay_chan_b,
+	CHANNEL_C => ay_chan_c,
+	SEL       => '0',
+	MODE      => '0',
+	IOA_in    => players_switches,
+	IOB_in    => (others => '0')
 );
+
+audio_out <= 	("00"&ay_chan_a) +
+					("00"&ay_chan_b) +
+					("00"&ay_chan_c) +
+					("00"&dac_sound);
 
 end SYN;

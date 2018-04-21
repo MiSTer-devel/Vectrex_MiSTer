@@ -28,8 +28,9 @@ use IEEE.numeric_std.ALL;
 
 entity gen_ram is
 	generic (
-		dWidth : integer := 8;
-		aWidth : integer := 10
+		dWidth : integer;
+		aWidth : integer;
+		nWords : integer
 	);
 	port (
 		clk : in std_logic;
@@ -43,7 +44,7 @@ end entity;
 -- -----------------------------------------------------------------------
 
 architecture rtl of gen_ram is
-	subtype addressRange is integer range 0 to ((2**aWidth)-1);
+	subtype addressRange is integer range 0 to (nWords-1);
 	type ramDef is array(addressRange) of std_logic_vector((dWidth-1) downto 0);
 	signal ram: ramDef;
 

@@ -105,34 +105,37 @@ assign LED_USER  = ioctl_download;
 assign LED_DISK  = 0;
 assign LED_POWER = 0;
 
-assign VIDEO_ARX = status[1] ? 8'd16 : 8'd4;
-assign VIDEO_ARY = status[1] ? 8'd9  : 8'd3; 
+assign VIDEO_ARX = status[1] ? 8'd16 : 8'd1;
+assign VIDEO_ARY = status[1] ? 8'd9  : 8'd1; 
 
 `include "build_id.v" 
 localparam CONF_STR = {
 	"VECTREX;;",
 	"-;",
-	"F,VEC;",
+	"F,VECBINROM;",
 	"-;",
 	"O1,Aspect ratio,4:3,16:9;",
+	"O9,Frame,No,Yes;",
 	"-;",
-	"R6,Reset;",
+	"O4,Resolution,High,Low;",
+	"O23,Phosphor persistance,1,2,3,4;",
+	"O56,Pseudocolor,Off,1,2,3;",
+	"O8,Overburn,No,Yes;",
+	"-;",
+	"R7,Reset;",
 	"J1,Button 1,Button 2,Button 3,Button 4;",
-	"V,v1.00.",`BUILD_DATE
+	"V,v2.00.",`BUILD_DATE
 };
 
 ////////////////////   CLOCKS   ///////////////////
 
-wire clk_sys, clk_vga;
-wire pll_locked;
-		
+wire clk_sys;
+
 pll pll
 (
 	.refclk(CLK_50M),
 	.rst(0),
-	.outclk_0(clk_sys),
-	.outclk_1(clk_vga),
-	.locked(pll_locked)
+	.outclk_0(clk_sys)
 );
 
 ///////////////////////////////////////////////////
@@ -175,7 +178,7 @@ assign AUDIO_R = {audio, 6'd0};
 assign AUDIO_S = 0;
 assign AUDIO_MIX = 0;
 
-wire reset_req = (RESET | status[0] | status[6] | buttons[1] | ioctl_download);
+wire reset_req = (RESET | status[0] | status[7] | buttons[1] | ioctl_download);
 reg reset;
 always @(posedge clk_sys) begin
 	integer timeout;
@@ -190,16 +193,14 @@ always @(posedge clk_sys) begin
 	if(reset_req) timeout <= 0;
 end
 
-wire vs,hs;
 wire hblank, vblank;
 
-assign CLK_VIDEO = clk_vga;
+assign CLK_VIDEO = clk_sys;
 assign CE_PIXEL = 1;
 
-assign VGA_HS = ~hs;
-assign VGA_VS = ~vs;
+assign VGA_HS = hblank;
+assign VGA_VS = vblank;
 assign VGA_DE = ~(hblank | vblank);
-assign {VGA_R[3:0],VGA_G[3:0],VGA_B[3:0]} = {VGA_R[7:4],VGA_G[7:4],VGA_B[7:4]};
 
 reg [14:0] addr_mask;
 always @(posedge clk_sys) begin
@@ -210,26 +211,41 @@ always @(posedge clk_sys) begin
 	if(ioctl_download && ioctl_wr && (ioctl_addr[14:0] & ~addr_mask)) addr_mask <= ((addr_mask<<1)|15'd1);
 end
 
+wire [4:0] pers[4]   = '{8,4,2,1};
+wire [9:0] width[2]  = '{540, 332};
+wire [9:0] height[2] = '{720, 410};
+
+wire frame_line;
+wire [7:0] r,g,b;
+
+assign VGA_R = status[9] & frame_line ? 8'h40 : r;
+assign VGA_G = status[9] & frame_line ? 8'h00 : g;
+assign VGA_B = status[9] & frame_line ? 8'h00 : b;
+
 vectrex vectrex
 (
 	.reset(reset),
-
-	.clock_24(clk_vga),
-	.clock_12(clk_sys),
+	.clock(clk_sys),
 
 	.cart_data(ioctl_dout),
 	.cart_addr(ioctl_addr),
 	.cart_mask(addr_mask),
 	.cart_wr(ioctl_wr & ioctl_download),
 	
-	.video_r(VGA_R[7:4]),
-	.video_g(VGA_G[7:4]),
-	.video_b(VGA_B[7:4]),
+	.video_r(r),
+	.video_g(g),
+	.video_b(b),
 
-	.video_hs(hs),
-	.video_vs(vs),
 	.video_hblank(hblank),
 	.video_vblank(vblank),
+
+	.video_width(width[status[4]]),
+	.video_height(height[status[4]]),
+
+	.color(status[6:5]),
+	.pers(pers[status[3:2]]),
+	.overburn(status[8]),
+	.frame_line(frame_line),
 
 	.audio_out(audio),
 	
