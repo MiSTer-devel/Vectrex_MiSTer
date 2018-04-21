@@ -507,15 +507,15 @@ begin
 	if rising_edge(clock) then
 	
 		hcnt <= hcnt + '1';
-		if hcnt = 559 then 
+		if hcnt = 553 then 
 			hcnt <= (others => '0');
-			if vcnt = 748 then 
+			if vcnt = 721 then 
 				vcnt <= (others => '0');
 			else
 				vcnt <= vcnt + '1';
 			end if;
-		end if;			
-		
+		end if;
+
 		if vcnt = 0 or vcnt = (video_height-1) then
 			if hcnt = 3             then frame_line <= '1'; end if;
 			if hcnt = video_width+3 then frame_line <= '0'; end if;				
