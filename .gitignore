@@ -36,3 +36,5 @@ c5_pin_model_dump.txt
 *~
 *.xml
 *.cdf
+*_netlist
+*.stp

@@ -124,7 +124,7 @@ localparam CONF_STR = {
 	"-;",
 	"R7,Reset;",
 	"J1,Button 1,Button 2,Button 3,Button 4;",
-	"V,v2.00.",`BUILD_DATE
+	"V,v2.10.",`BUILD_DATE
 };
 
 ////////////////////   CLOCKS   ///////////////////

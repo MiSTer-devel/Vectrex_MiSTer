@@ -158,26 +158,25 @@ constant max_x         : integer := base_res*4*8;
 constant max_y         : integer := base_res*3*8;
 --------------------------------------------------------------
 
-signal clock_div : std_logic_vector(2 downto 0);
 signal clken_12  : std_logic;
+signal cpu_en    : std_logic;
+signal rQ        : std_logic;
+signal E         : std_logic;
 
-signal cpu_en     : std_logic;
-signal cpu_addr   : std_logic_vector(15 downto 0);
-signal cpu_di     : std_logic_vector( 7 downto 0);
-signal cpu_do     : std_logic_vector( 7 downto 0);
-signal cpu_rw     : std_logic;
-signal cpu_irq    : std_logic;
-signal cpu_firq   : std_logic;
+signal cpu_addr  : std_logic_vector(15 downto 0);
+signal cpu_di    : std_logic_vector( 7 downto 0);
+signal cpu_do    : std_logic_vector( 7 downto 0);
+signal cpu_rw    : std_logic;
 
-signal ram_cs   : std_logic;
-signal ram_do   : std_logic_vector( 7 downto 0);
-signal ram_we   : std_logic;
+signal ram_cs    : std_logic;
+signal ram_do    : std_logic_vector( 7 downto 0);
+signal ram_we    : std_logic;
 
-signal rom_cs   : std_logic;
-signal rom_do   : std_logic_vector( 7 downto 0);
+signal rom_cs    : std_logic;
+signal rom_do    : std_logic_vector( 7 downto 0);
 
-signal cart_cs  : std_logic;
-signal cart_do  : std_logic_vector( 7 downto 0);
+signal cart_cs   : std_logic;
+signal cart_do   : std_logic_vector( 7 downto 0);
 
 signal via_cs_n  : std_logic;
 signal via_do    : std_logic_vector(7 downto 0);
@@ -186,10 +185,9 @@ signal via_cb2_o : std_logic;
 signal via_pa_o  : std_logic_vector(7 downto 0);
 signal via_pb_o  : std_logic_vector(7 downto 0);
 signal via_irq_n : std_logic;
-signal via_en_4  : std_logic;
 
-signal sh_dac  : std_logic;
-signal dac_mux : std_logic_vector(2 downto 1);
+signal sh_dac    : std_logic;
+signal dac_mux   : std_logic_vector(2 downto 1);
 signal zero_integrator_n : std_logic;
 signal ramp_integrator_n : std_logic;
 signal beam_blank_n      : std_logic;
@@ -292,6 +290,35 @@ component ym2149 is port
 );
 end component ym2149; 
  
+component mc6809 is port
+(
+    CLK      : in  std_logic;
+    CLKEN    : in  std_logic;
+
+    E        : out std_logic;
+    riseE    : out std_logic;
+    fallE    : out std_logic;
+
+    Q        : out std_logic;
+    riseQ    : out std_logic;
+    fallQ    : out std_logic;
+
+    Din      : in  std_logic_vector(7 downto 0);
+    Dout     : out std_logic_vector(7 downto 0);
+    ADDR     : out std_logic_vector(15 downto 0);
+    RnW      : out std_logic;
+    BS       : out std_logic;
+    BA       : out std_logic;
+    nIRQ     : in  std_logic := '1';
+    nFIRQ    : in  std_logic := '1';
+    nNMI     : in  std_logic := '1';
+    nHALT    : in  std_logic := '1';
+    nRESET   : in  std_logic := '1';
+    MRDY     : in  std_logic := '1';
+    nDMA     : in  std_logic := '1'
+);
+end component mc6809; 
+
 begin
 
 --static ADDRESS_MAP_START(vectrex_map, AS_PROGRAM, 8, vectrex_state )
@@ -300,36 +327,6 @@ begin
 --	AM_RANGE(0xd000, 0xd7ff) AM_READWRITE(vectrex_via_r, vectrex_via_w)
 --	AM_RANGE(0xe000, 0xffff) AM_ROM AM_REGION("maincpu", 0)
 --ADDRESS_MAP_END
-
--- chip select
-cart_cs  <= '1' when cpu_addr(15) = '0' else '0'; 	
-ram_cs   <= '1' when cpu_addr(15 downto 12) = X"C"  else '0'; 
-via_cs_n <= '0' when cpu_addr(15 downto 12) = X"D"  else '1'; 
-rom_cs   <= '1' when cpu_addr(15 downto 13) = "111" else '0'; 
-	
--- write enable working ram
-ram_we <=   '1' when cpu_rw = '0' and ram_cs = '1' else '0';
-
--- misc
-cpu_irq <= not via_irq_n;
-cpu_firq <= '0';
-
-cpu_di <= cart_do when cart_cs  = '1' else
-			 ram_do  when ram_cs   = '1' else
-			 via_do  when via_cs_n = '0' else
-			 rom_do  when rom_cs   = '1' else
-			 X"00";
-
--- players controls
-players_switches <= not(rt_2&lf_2&dn_2&up_2&rt_1&lf_1&dn_1&up_1);
-
-with dac_mux select
-pot <= pot_x_1 when "00",
-		 pot_y_1 when "01",
-		 pot_x_2 when "10",
-		 pot_y_2 when others;
-
-compare <= '1' when (pot(7)&pot) > dac else '0';
 
 -- beam control
 sh_dac            <= via_pb_o(0);
@@ -344,14 +341,7 @@ process (clock)
 	variable limit_n : std_logic;
 begin
 	if rising_edge(clock) then
-		via_en_4 <= '0';
-		cpu_en   <= '0';
-
 		if clken_12 = '1' then
-			clock_div <= clock_div + '1';
-			
-			if clock_div(0) = '0' then via_en_4 <= '1'; end if;
-			if clock_div = "011"  then cpu_en   <= '1'; end if;
 
 			if sh_dac = '0' then
 				case dac_mux is
@@ -433,9 +423,11 @@ begin
 		video_we_2 <= '0';
 		video_we_3 <= '0';
 		clken_12   <= '0';
+		cpu_en     <= '0';
 
 		case phase is
 			when "00" =>
+				cpu_en <= '1';
 				video_addr <= scan_video_addr(19 downto 2);
 
 			when "10" =>
@@ -548,41 +540,14 @@ video_vblank <= vblank;
 
 scan_video_addr <= vcnt * video_width + hcnt;
 
----------------------------
--- components
----------------------------			
+--------------------------------------------------------------------
 
--- microprocessor 6809
-main_cpu : entity work.cpu09
-port map(	
-	clk      => clock,    -- E clock input (falling edge)
-	ce       => cpu_en,
-	rst      => reset,    -- reset input (active high)
-	vma      => open,     -- valid memory address (active high)
-   lic_out  => open,     -- last instruction cycle (active high)
-   ifetch   => open,     -- instruction fetch cycle (active high)
-   opfetch  => open,     -- opcode fetch (active high)
-   ba       => open,     -- bus available (high on sync wait or DMA grant)
-   bs       => open,     -- bus status (high on interrupt or reset vector fetch or DMA grant)
-	addr     => cpu_addr, -- address bus output
-	rw       => cpu_rw,   -- read not write output
-	data_out => cpu_do,   -- data bus output
-	data_in  => cpu_di,   -- data bus input
-	irq      => cpu_irq,  -- interrupt request input (active high)
-	firq     => cpu_firq, -- fast interrupt request input (active high)
-	nmi      => '0',      -- non maskable interrupt request input (active high)
-	halt     => '0'       -- halt input (active high) grants DMA
-);
-
-		
 cpu_prog_rom : entity work.bios_rom
 port map(
 	clk  => clock,
 	addr => cpu_addr(12 downto 0),
 	data => rom_do
 );
-
---------------------------------------------------------------------
 
 cart_rom : entity work.gen_rom
 port map
@@ -596,8 +561,6 @@ port map
 	rdaddress => (cpu_addr(14 downto 0) and cart_mask),
 	q => cart_do
 );
-
---------------------------------------------------------------------
 
 working_ram : entity work.gen_dpram
 generic map
@@ -613,12 +576,60 @@ port map
 	wren_a		=> cart_wr,
 
 	clock_b		=> clock,
-	enable_b    => cpu_en,
-	wren_b		=> ram_we,
+	wren_b		=> ram_we and rQ,
 	address_b	=> cpu_addr(9 downto 0),
 	data_b		=> cpu_do,
 	q_b		   => ram_do
 );
+
+--------------------------------------------------------------------
+
+-- chip select
+cart_cs  <= '1' when cpu_addr(15) = '0' else '0'; 	
+ram_cs   <= '1' when cpu_addr(15 downto 12) = X"C"  else '0'; 
+via_cs_n <= '0' when cpu_addr(15 downto 12) = X"D"  else '1'; 
+rom_cs   <= '1' when cpu_addr(15 downto 13) = "111" else '0'; 
+	
+-- write enable working ram
+ram_we <=   '1' when cpu_rw = '0' and ram_cs = '1' else '0';
+
+cpu_di <= cart_do when cart_cs  = '1' else
+			 ram_do  when ram_cs   = '1' else
+			 via_do  when via_cs_n = '0' else
+			 rom_do  when rom_cs   = '1' else
+			 X"00";
+
+-- players controls
+players_switches <= not(rt_2&lf_2&dn_2&up_2&rt_1&lf_1&dn_1&up_1);
+
+with dac_mux select
+pot <= pot_x_1 when "00",
+		 pot_y_1 when "01",
+		 pot_x_2 when "10",
+		 pot_y_2 when others;
+
+compare <= '1' when (pot(7)&pot) > dac else '0';
+
+--------------------------------------------------------------------
+
+main_cpu : mc6809
+port map
+(
+	CLK      => clock, 
+	CLKEN    => cpu_en,
+	nRESET   => not reset,
+
+	E        => E,
+	riseQ    => rQ,
+
+	Din      => cpu_di,
+	Dout     => cpu_do,
+	ADDR     => cpu_addr,
+	RnW      => cpu_rw,
+
+	nIRQ     => via_irq_n
+);
+
 
 via6522_inst : entity work.M6522
 port map(
@@ -658,8 +669,8 @@ port map(
 
 	RESET_L         => not reset,
 	CLK             => clock,
-	I_P2_H          => clock_div(2),  -- high for phase 2 clock  ____----__
-	ENA_4           => via_en_4       -- 4x system clock (4HZ)   _-_-_-_-_-
+	I_P2_H          => not E, -- high for phase 2 clock  ____----__
+	ENA_4           => cpu_en -- 4x system clock         _-_-_-_-_-
 );
 
 -- AY-3-8910
@@ -667,7 +678,7 @@ ym2149_inst : ym2149
 port map
 (
 	CLK       => clock,
-	CE        => cpu_en,
+	CE        => rQ,
 	RESET     => reset,
 	BDIR      => via_pb_o(4),
 	BC        => via_pb_o(3),
