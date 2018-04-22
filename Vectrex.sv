@@ -180,20 +180,7 @@ assign AUDIO_R = {audio, 6'd0};
 assign AUDIO_S = 0;
 assign AUDIO_MIX = 0;
 
-wire reset_req = (RESET | status[0] | status[7] | buttons[1] | ioctl_download);
-reg reset;
-always @(posedge clk_sys) begin
-	integer timeout;
-	
-	if(timeout < 12000000) begin
-		reset <= 1;
-		timeout <= timeout + 1;
-	end else begin
-		reset <= 0;
-	end
-
-	if(reset_req) timeout <= 0;
-end
+wire reset = (RESET | status[0] | status[7] | buttons[1] | ioctl_download);
 
 wire hblank, vblank;
 
