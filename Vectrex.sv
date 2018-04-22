@@ -113,6 +113,7 @@ localparam CONF_STR = {
 	"VECTREX;;",
 	"-;",
 	"F,VECBINROM;",
+	"OB,Skip logo,No,Yes;",
 	"-;",
 	"O1,Aspect ratio,4:3,16:9;",
 	"O9,Frame,No,Yes;",
@@ -180,7 +181,21 @@ assign AUDIO_R = {audio, 6'd0};
 assign AUDIO_S = 0;
 assign AUDIO_MIX = 0;
 
-wire reset = (RESET | status[0] | status[7] | buttons[1] | ioctl_download);
+wire reset = (RESET | status[0] | status[7] | buttons[1] | ioctl_download | second_reset);
+
+reg second_reset = 0;
+always @(posedge clk_sys) begin
+	integer timeout = 0;
+
+	if(ioctl_download && status[11]) timeout <= 5000000;
+	else begin
+		if(!timeout) second_reset <= 0;
+		else begin
+			timeout <= timeout - 1;
+			if(timeout < 1000) second_reset <= 1;
+		end
+	end
+end
 
 wire hblank, vblank;
 
