@@ -21,11 +21,11 @@
 ---------------------------------------------------------------------------------
 -- cpu09l_128
 -- Copyright (C) 2003 - 2010 John Kent
--- + modification 
+-- + modification
 ---------------------------------------------------------------------------------
 -- Use vectrex_de10_lite.sdc to compile (Timequest constraints)
 -- /!\
--- Don't forget to set device configuration mode with memory initialization 
+-- Don't forget to set device configuration mode with memory initialization
 --  (Assignments/Device/Pin options/Configuration mode)
 ---------------------------------------------------------------------------------
 -- Vectrex beam control hardware
@@ -36,14 +36,14 @@
 --
 --   Uses via port_A, dac and capacitor to set beam intensity before displacment
 
---   Before drawing any object (or text) the beam position is reset to screen center. 
+--   Before drawing any object (or text) the beam position is reset to screen center.
 --   via_CA2 is used to reset beam position.
 --
 --	  Uses via_CB2 to set pen ON/OFF. CB2 is always driven by via shift register (SR)
 --   output. SR is loaded with 0xFF for plain line drawing. SR is loaded with 0x00
---   for displacement with no drawing. SR is loaded with characters graphics 
+--   for displacement with no drawing. SR is loaded with characters graphics
 --   (character by character and line by line). SR is ALWAYS used in one shot mode
---   although SR bits are recirculated, SR shift stops on the last data bit (and 
+--   although SR bits are recirculated, SR shift stops on the last data bit (and
 --   not on the first bit of data recirculated)
 --
 --   Exec_rom uses line drawing with Timer 1 and FF/00 SR loading (FF or 00 with
@@ -52,19 +52,19 @@
 --
 --	  Exec_rom draw characters in the following manner : start displacement and feed
 --   SR with character grahics (at the right time) till the end of the complete line.
---   Then move down one line and then backward up to the begining of the next line 
---   with no drawing. Then start drawing the second line... ans so on 7 times. 
---   CPU has enough time to get the next character and the corresponding graphics 
+--   Then move down one line and then backward up to the begining of the next line
+--   with no drawing. Then start drawing the second line... ans so on 7 times.
+--   CPU has enough time to get the next character and the corresponding graphics
 --   line data between each SR feed. T1 is not used.
---   
+--
 --   Most games seems to use those exec_rom routines.
 --
 --   During cut scene of spike sound sample have to be interlaced (through dac) while
 --   drawing. Spike uses it's own routine for that job. That routine prepare drawing
 --   data (graphics and vx/vy speeds) within working ram before cut scene start to be
---   able to feed sound sample between each movement segment. T1 and SR are used but 
---   T1 timeout is not check. CPU expect there is enough time from T1 start to next 
---   dac modification (dac ouput is alway vx during move). Modifying dac before T1 
+--   able to feed sound sample between each movement segment. T1 and SR are used but
+--   T1 timeout is not check. CPU expect there is enough time from T1 start to next
+--   dac modification (dac ouput is alway vx during move). Modifying dac before T1
 --   timeout will corrupt drawing. eg : when starting from @1230 (clr T1h), T1 must
 --   have finished before reaching @11A4 (put sound sample value on dac). Drawing
 --   characters with this routine is done by going backward between each character
@@ -90,7 +90,7 @@
 --   vector beam is continuously written at 12MHz (seems to be ok)
 --
 ---------------------------------------------------------------------------------
--- 
+--
 -- Rasterizer enhancements and color mode by Sorgelig.
 --
 ---------------------------------------------------------------------------------
@@ -105,6 +105,7 @@ port
 (
 	clock		    : in  std_logic;
 	reset        : in  std_logic;
+	cpu          : in  std_logic;
 
 	cart_data    : in  std_logic_vector(7 downto 0);
 	cart_addr    : in  std_logic_vector(14 downto 0);
@@ -154,65 +155,65 @@ constant max_h         : integer := 540; -- have to be multiple of 4
 constant max_v         : integer := 720;
 constant base_res      : integer := 5625;
 
-constant max_x         : integer := base_res*4*8; 
+constant max_x         : integer := base_res*4*8;
 constant max_y         : integer := base_res*3*8;
 --------------------------------------------------------------
 
-signal clken_12  : std_logic;
-signal cpu_en    : std_logic;
-signal rQ        : std_logic;
-signal E         : std_logic;
+signal clken_12        : std_logic;
+signal cpu_en          : std_logic;
+signal rQ              : std_logic;
+signal E               : std_logic;
 
-signal cpu_addr  : std_logic_vector(15 downto 0);
-signal cpu_di    : std_logic_vector( 7 downto 0);
-signal cpu_do    : std_logic_vector( 7 downto 0);
-signal cpu_rw    : std_logic;
+signal cpu_addr        : std_logic_vector(15 downto 0);
+signal cpu_di          : std_logic_vector( 7 downto 0);
+signal cpu_do          : std_logic_vector( 7 downto 0);
+signal cpu_rw          : std_logic;
 
-signal ram_cs    : std_logic;
-signal ram_do    : std_logic_vector( 7 downto 0);
-signal ram_we    : std_logic;
+signal ram_cs          : std_logic;
+signal ram_do          : std_logic_vector( 7 downto 0);
+signal ram_we          : std_logic;
 
-signal rom_cs    : std_logic;
-signal rom_do    : std_logic_vector( 7 downto 0);
+signal rom_cs          : std_logic;
+signal rom_do          : std_logic_vector( 7 downto 0);
 
-signal cart_cs   : std_logic;
-signal cart_do   : std_logic_vector( 7 downto 0);
+signal cart_cs         : std_logic;
+signal cart_do         : std_logic_vector( 7 downto 0);
 
-signal via_cs_n  : std_logic;
-signal via_do    : std_logic_vector(7 downto 0);
-signal via_ca2_o : std_logic;
-signal via_cb2_o : std_logic;
-signal via_pa_o  : std_logic_vector(7 downto 0);
-signal via_pb_o  : std_logic_vector(7 downto 0);
-signal via_irq_n : std_logic;
+signal via_cs_n        : std_logic;
+signal via_do          : std_logic_vector(7 downto 0);
+signal via_ca2_o       : std_logic;
+signal via_cb2_o       : std_logic;
+signal via_pa_o        : std_logic_vector(7 downto 0);
+signal via_pb_o        : std_logic_vector(7 downto 0);
+signal via_irq_n       : std_logic;
 
-signal sh_dac    : std_logic;
-signal dac_mux   : std_logic_vector(2 downto 1);
+signal sh_dac          : std_logic;
+signal dac_mux         : std_logic_vector(2 downto 1);
 signal zero_integrator_n : std_logic;
 signal ramp_integrator_n : std_logic;
 signal beam_blank_n      : std_logic;
 
-signal dac       : signed(8 downto 0);
-signal dac_y     : signed(8 downto 0);
-signal dac_z     : std_logic_vector(7 downto 0);
-signal ref_level : signed(8 downto 0);
-signal dac_sound : std_logic_vector(7 downto 0);
+signal dac             : signed(8 downto 0);
+signal dac_y           : signed(8 downto 0);
+signal dac_z           : std_logic_vector(7 downto 0);
+signal ref_level       : signed(8 downto 0);
+signal dac_sound       : std_logic_vector(7 downto 0);
 
-signal integrator_x : signed(19 downto 0);
-signal integrator_y : signed(19 downto 0);
+signal integrator_x    : signed(19 downto 0);
+signal integrator_y    : signed(19 downto 0);
 
-signal shifted_x : signed(19 downto 0);
-signal shifted_y : signed(19 downto 0);
+signal shifted_x       : signed(19 downto 0);
+signal shifted_y       : signed(19 downto 0);
 
-signal limited_x : integer;
-signal limited_y : integer;
+signal limited_x       : integer;
+signal limited_y       : integer;
 
-signal beam_h  : unsigned(9 downto 0);
-signal beam_v  : unsigned(9 downto 0);
+signal beam_h          : unsigned(9 downto 0);
+signal beam_v          : unsigned(9 downto 0);
 
-signal beam_hd : unsigned(9 downto 0);
-signal beam_vd : unsigned(9 downto 0);
-signal beam_cnt : integer;
+signal beam_hd         : unsigned(9 downto 0);
+signal beam_vd         : unsigned(9 downto 0);
+signal beam_cnt        : integer;
 
 signal beam_blank_buffer    : std_logic_vector(5 downto 0);
 signal beam_blank_n_delayed : std_logic;
@@ -221,53 +222,53 @@ signal beam_video_addr : std_logic_vector(19 downto 0);
 signal scan_video_addr : std_logic_vector(19 downto 0);
 signal video_addr      : std_logic_vector(17 downto 0);
 
-signal phase : std_logic_vector(1 downto 0);
+signal phase           : std_logic_vector(1 downto 0);
 
-signal video_we_0 : std_logic;
-signal video_we_1 : std_logic;
-signal video_we_2 : std_logic;
-signal video_we_3 : std_logic;
-signal video_rd   : std_logic;
-signal video_pixel: std_logic_vector(7 downto 0);
+signal video_we_0      : std_logic;
+signal video_we_1      : std_logic;
+signal video_we_2      : std_logic;
+signal video_we_3      : std_logic;
+signal video_rd        : std_logic;
+signal video_pixel     : std_logic_vector(7 downto 0);
 
-signal read_0 : std_logic_vector(vram_width-1 downto 0);
-signal read_0b: std_logic_vector(vram_width-1 downto 0);
-signal read_1 : std_logic_vector(vram_width-1 downto 0);
-signal read_1b: std_logic_vector(vram_width-1 downto 0);
-signal read_2 : std_logic_vector(vram_width-1 downto 0);
-signal read_2b: std_logic_vector(vram_width-1 downto 0);
-signal read_3 : std_logic_vector(vram_width-1 downto 0);
-signal read_3b: std_logic_vector(vram_width-1 downto 0);
-signal pixel  : std_logic_vector(vram_width-1 downto 0);
+signal read_0          : std_logic_vector(vram_width-1 downto 0);
+signal read_0b         : std_logic_vector(vram_width-1 downto 0);
+signal read_1          : std_logic_vector(vram_width-1 downto 0);
+signal read_1b         : std_logic_vector(vram_width-1 downto 0);
+signal read_2          : std_logic_vector(vram_width-1 downto 0);
+signal read_2b         : std_logic_vector(vram_width-1 downto 0);
+signal read_3          : std_logic_vector(vram_width-1 downto 0);
+signal read_3b         : std_logic_vector(vram_width-1 downto 0);
+signal pixel           : std_logic_vector(vram_width-1 downto 0);
 
-signal write_0 : std_logic_vector(vram_width-1 downto 0);
-signal write_1 : std_logic_vector(vram_width-1 downto 0);
-signal write_2 : std_logic_vector(vram_width-1 downto 0);
-signal write_3 : std_logic_vector(vram_width-1 downto 0);
+signal write_0         : std_logic_vector(vram_width-1 downto 0);
+signal write_1         : std_logic_vector(vram_width-1 downto 0);
+signal write_2         : std_logic_vector(vram_width-1 downto 0);
+signal write_3         : std_logic_vector(vram_width-1 downto 0);
 
-signal hcnt : std_logic_vector(9 downto 0);
-signal vcnt : std_logic_vector(9 downto 0);	
+signal hcnt            : std_logic_vector(9 downto 0);
+signal vcnt            : std_logic_vector(9 downto 0);
 
-signal hblank : std_logic;
-signal vblank : std_logic;
+signal hblank          : std_logic;
+signal vblank          : std_logic;
 
-signal ay_do          : std_logic_vector(7 downto 0);
-signal ay_chan_a      : std_logic_vector(7 downto 0);
-signal ay_chan_b      : std_logic_vector(7 downto 0);
-signal ay_chan_c      : std_logic_vector(7 downto 0);
+signal ay_do           : std_logic_vector(7 downto 0);
+signal ay_chan_a       : std_logic_vector(7 downto 0);
+signal ay_chan_b       : std_logic_vector(7 downto 0);
+signal ay_chan_c       : std_logic_vector(7 downto 0);
 
-signal pot     : signed(7 downto 0);
-signal compare : std_logic;
-signal players_switches : std_logic_vector(7 downto 0);
- 
+signal pot             : signed(7 downto 0);
+signal compare         : std_logic;
+signal players_switches: std_logic_vector(7 downto 0);
+
 signal pix_g,pix_r,pix_b : std_logic;
-signal subt    : std_logic_vector(7 downto 0);
-signal mask    : std_logic_vector(7 downto 0);
-signal pix     : std_logic_vector(7 downto 0);
-signal pix_fx  : std_logic_vector(7 downto 0);
-signal pix_c   : std_logic_vector(7 downto 0);
-signal pix_cc  : std_logic_vector(7 downto 0);
-signal dac_ob  : std_logic_vector(7 downto 0);
+signal subt            : std_logic_vector(7 downto 0);
+signal mask            : std_logic_vector(7 downto 0);
+signal pix             : std_logic_vector(7 downto 0);
+signal pix_fx          : std_logic_vector(7 downto 0);
+signal pix_c           : std_logic_vector(7 downto 0);
+signal pix_cc          : std_logic_vector(7 downto 0);
+signal dac_ob          : std_logic_vector(7 downto 0);
 
 component ym2149 is port
 (
@@ -288,36 +289,35 @@ component ym2149 is port
 	IOB_in    : in  std_logic_vector(7 downto 0);
 	IOB_out   : out std_logic_vector(7 downto 0)
 );
-end component ym2149; 
- 
+end component ym2149;
+
 component mc6809 is port
 (
-    CLK      : in  std_logic;
-    CLKEN    : in  std_logic;
+	CPU    : in  std_logic;
 
-    E        : out std_logic;
-    riseE    : out std_logic;
-    fallE    : out std_logic;
+	CLK    : in  std_logic;
+	CLKEN  : in  std_logic;
 
-    Q        : out std_logic;
-    riseQ    : out std_logic;
-    fallQ    : out std_logic;
+	E      : out std_logic;
+	riseE  : out std_logic;
+	fallE  : out std_logic;
 
-    Din      : in  std_logic_vector(7 downto 0);
-    Dout     : out std_logic_vector(7 downto 0);
-    ADDR     : out std_logic_vector(15 downto 0);
-    RnW      : out std_logic;
-    BS       : out std_logic;
-    BA       : out std_logic;
-    nIRQ     : in  std_logic := '1';
-    nFIRQ    : in  std_logic := '1';
-    nNMI     : in  std_logic := '1';
-    nHALT    : in  std_logic := '1';
-    nRESET   : in  std_logic := '1';
-    MRDY     : in  std_logic := '1';
-    nDMA     : in  std_logic := '1'
+	Q      : out std_logic;
+	riseQ  : out std_logic;
+	fallQ  : out std_logic;
+
+	Din    : in  std_logic_vector(7 downto 0);
+	Dout   : out std_logic_vector(7 downto 0);
+	ADDR   : out std_logic_vector(15 downto 0);
+	RnW    : out std_logic;
+
+	nIRQ   : in  std_logic := '1';
+	nFIRQ  : in  std_logic := '1';
+	nNMI   : in  std_logic := '1';
+	nHALT  : in  std_logic := '1';
+	nRESET : in  std_logic := '1'
 );
-end component mc6809; 
+end component mc6809;
 
 begin
 
@@ -334,7 +334,7 @@ dac_mux           <= via_pb_o(2 downto 1);
 zero_integrator_n <= via_ca2_o;
 ramp_integrator_n <= via_pb_o(7);
 beam_blank_n      <= via_cb2_o;
-			 			 
+
 dac <= signed(via_pa_o(7)&via_pa_o); -- must ensure sign extension for 0x80 value to be used in integrator equation
 
 process (clock)
@@ -366,22 +366,22 @@ begin
 
 			shifted_x <= integrator_x+max_x;
 			shifted_y <= integrator_y+max_y;
-			
+
 			-- limit and scaling should be enhanced
-			
+
 			limit_n := '1';
-			if    shifted_x > 2*max_x then limited_x <= 2*max_x; limit_n := '0'; 
-			elsif shifted_x < 0       then limited_x <= 0;       limit_n := '0'; 
+			if    shifted_x > 2*max_x then limited_x <= 2*max_x; limit_n := '0';
+			elsif shifted_x < 0       then limited_x <= 0;       limit_n := '0';
 			else                           limited_x <= to_integer(unsigned(shifted_x)); end if;
-						
-			if    shifted_y > 2*max_y then limited_y <= 2*max_y; limit_n := '0'; 
-			elsif shifted_y < 0       then limited_y <= 0; 		  limit_n := '0'; 
+
+			if    shifted_y > 2*max_y then limited_y <= 2*max_y; limit_n := '0';
+			elsif shifted_y < 0       then limited_y <= 0; 		  limit_n := '0';
 			else                           limited_y <= to_integer(unsigned(shifted_y)); end if;
 
-			-- integer computation to try making rounding computation during division 
+			-- integer computation to try making rounding computation during division
 
 			beam_v <= to_unsigned((limited_x*to_integer(unsigned(video_height)))/(2*max_x),10);
-			beam_h <= to_unsigned((limited_y*to_integer(unsigned(video_width)))/(2*max_y),10);		
+			beam_h <= to_unsigned((limited_y*to_integer(unsigned(video_width)))/(2*max_y),10);
 
 			beam_video_addr <= std_logic_vector(beam_v * unsigned(video_width) + beam_h);
 
@@ -416,7 +416,7 @@ end process;
 process (clock)
 begin
 	if rising_edge(clock) then
-		phase <= hcnt(1 downto 0);	
+		phase <= hcnt(1 downto 0);
 
 		video_we_0 <= '0';
 		video_we_1 <= '0';
@@ -445,7 +445,7 @@ begin
 				if beam_blank_n_delayed = '1' then
 					case beam_video_addr(1 downto 0) is
 
-						when "00"   => video_we_0 <= '1'; write_0 <= pix; 
+						when "00"   => video_we_0 <= '1'; write_0 <= pix;
 						when "01"   => video_we_1 <= '1'; write_1 <= pix;
 						when "10"   => video_we_2 <= '1'; write_2 <= pix;
 						when others => video_we_3 <= '1'; write_3 <= pix;
@@ -505,11 +505,11 @@ port map( clk => not clock, we => video_we_3, addr => video_addr, d => write_3, 
 process (clock)
 begin
 	if rising_edge(clock) then
-	
+
 		hcnt <= hcnt + '1';
-		if hcnt = 553 then 
+		if hcnt = 553 then
 			hcnt <= (others => '0');
-			if vcnt = 721 then 
+			if vcnt = 721 then
 				vcnt <= (others => '0');
 			else
 				vcnt <= vcnt + '1';
@@ -518,8 +518,8 @@ begin
 
 		if vcnt = 0 or vcnt = (video_height-1) then
 			if hcnt = 3             then frame_line <= '1'; end if;
-			if hcnt = video_width+3 then frame_line <= '0'; end if;				
-		elsif vcnt > 0 and vcnt < (video_height-1) then 
+			if hcnt = video_width+3 then frame_line <= '0'; end if;
+		elsif vcnt > 0 and vcnt < (video_height-1) then
 			if hcnt = 3 or hcnt = video_width+2 then
 				frame_line <= '1';
 			else
@@ -529,9 +529,9 @@ begin
 
 		if hcnt =             3 then hblank <= '0'; end if;
 		if hcnt = video_width+3 then hblank <= '1'; end if;
-		if vcnt =             0 then vblank <= '0'; end if;			
+		if vcnt =             0 then vblank <= '0'; end if;
 		if vcnt = video_height  then vblank <= '1'; end if;
-		
+
 	end if;
 end process;
 
@@ -542,8 +542,9 @@ scan_video_addr <= vcnt * video_width + hcnt;
 
 --------------------------------------------------------------------
 
-cpu_prog_rom : entity work.bios_rom
-port map(
+main_rom : entity work.bios_rom
+port map
+(
 	clk  => clock,
 	addr => cpu_addr(12 downto 0),
 	data => rom_do
@@ -552,44 +553,40 @@ port map(
 cart_rom : entity work.gen_rom
 port map
 (
-	data	=> cart_data,
+	data	    => cart_data,
 	wraddress => cart_addr,
-	wrclock	=> clock,
-	wren	=> cart_wr,
+	wrclock	 => clock,
+	wren	    => cart_wr,
 
-	rdclock => clock,
+	rdclock   => clock,
 	rdaddress => (cpu_addr(14 downto 0) and cart_mask),
-	q => cart_do
+	q         => cart_do
 );
 
-working_ram : entity work.gen_dpram
-generic map
-(
-	 addr_width_g => 10,
-	 data_width_g => 8
-)
+ram : entity work.gen_dpram
+generic map(10, 8)
 port map
 (
-	clock_a		=> clock,
-	address_a	=> cart_addr(9 downto 0),
-	data_a		=> (others => '0'),
-	wren_a		=> cart_wr,
+	clock_a	 => clock,
+	address_a => cart_addr(9 downto 0),
+	data_a	 => (others => '0'),
+	wren_a	 => cart_wr,
 
-	clock_b		=> clock,
-	wren_b		=> ram_we and rQ,
-	address_b	=> cpu_addr(9 downto 0),
-	data_b		=> cpu_do,
-	q_b		   => ram_do
+	clock_b	 => clock,
+	wren_b	 => ram_we and rQ,
+	address_b => cpu_addr(9 downto 0),
+	data_b	 => cpu_do,
+	q_b		 => ram_do
 );
 
 --------------------------------------------------------------------
 
 -- chip select
-cart_cs  <= '1' when cpu_addr(15) = '0' else '0'; 	
-ram_cs   <= '1' when cpu_addr(15 downto 12) = X"C"  else '0'; 
-via_cs_n <= '0' when cpu_addr(15 downto 12) = X"D"  else '1'; 
-rom_cs   <= '1' when cpu_addr(15 downto 13) = "111" else '0'; 
-	
+cart_cs  <= '1' when cpu_addr(15) = '0' else '0';
+ram_cs   <= '1' when cpu_addr(15 downto 12) = X"C"  else '0';
+via_cs_n <= '0' when cpu_addr(15 downto 12) = X"D"  else '1';
+rom_cs   <= '1' when cpu_addr(15 downto 13) = "111" else '0';
+
 -- write enable working ram
 ram_we <=   '1' when cpu_rw = '0' and ram_cs = '1' else '0';
 
@@ -615,66 +612,62 @@ compare <= '1' when (pot(7)&pot) > dac else '0';
 main_cpu : mc6809
 port map
 (
-	CLK      => clock, 
-	CLKEN    => cpu_en,
-	nRESET   => not reset,
+	CLK    => clock,
+	CLKEN  => cpu_en,
+	nRESET => not reset,
+	CPU    => cpu,
 
-	E        => E,
-	riseQ    => rQ,
+	E      => E,
+	riseQ  => rQ,
 
-	Din      => cpu_di,
-	Dout     => cpu_do,
-	ADDR     => cpu_addr,
-	RnW      => cpu_rw,
+	Din    => cpu_di,
+	Dout   => cpu_do,
+	ADDR   => cpu_addr,
+	RnW    => cpu_rw,
 
-	nIRQ     => via_irq_n
+	nIRQ   => via_irq_n,
+	nFIRQ  => not rt_1
 );
 
 
 via6522_inst : entity work.M6522
 port map(
-	I_RS            => cpu_addr(3 downto 0),
-	I_DATA          => cpu_do,
-	O_DATA          => via_do,
-	O_DATA_OE_L     => open,
+	I_RS    => cpu_addr(3 downto 0),
+	I_DATA  => cpu_do,
+	O_DATA  => via_do,
 
-	I_RW_L          => cpu_rw,
-	I_CS1           => cpu_addr(12),
-	I_CS2_L         => via_cs_n,
+	I_RW_L  => cpu_rw,
+	I_CS1   => cpu_addr(12),
+	I_CS2_L => via_cs_n,
 
-	O_IRQ_L         => via_irq_n,
+	O_IRQ_L => via_irq_n,
 
 	-- port a
-	I_CA1           => '0',
-	I_CA2           => '0',
-	O_CA2           => via_ca2_o,
-	O_CA2_OE_L      => open,
+	I_CA1   => not rt_2,
+	I_CA2   => '0',
+	O_CA2   => via_ca2_o,
 
-	I_PA            => ay_do,
-	O_PA            => via_pa_o,
-	O_PA_OE_L       => open,
+	I_PA    => ay_do,
+	O_PA    => via_pa_o,
 
 	-- port b
-	I_CB1           => '0',
-	O_CB1           => open,
-	O_CB1_OE_L      => open,
+	I_CB1   => '0',
+	O_CB1   => open,
 
-	I_CB2           => '0',
-	O_CB2           => via_cb2_o,
-	O_CB2_OE_L      => open,
+	I_CB2   => '0',
+	O_CB2   => via_cb2_o,
 
-	I_PB            => "00"&compare&"00000",
-	O_PB            => via_pb_o,
-	O_PB_OE_L       => open,
+	I_PB    => "00"&compare&"00000",
+	O_PB    => via_pb_o,
 
-	RESET_L         => not reset,
-	CLK             => clock,
-	I_P2_H          => not E, -- high for phase 2 clock  ____----__
-	ENA_4           => cpu_en -- 4x system clock         _-_-_-_-_-
+	RESET_L => not reset,
+	CLK     => clock,
+	I_P2_H  => not E, -- high for phase 2 clock  ____----__
+	ENA_4   => cpu_en -- 4x system clock         _-_-_-_-_-
 );
 
 -- AY-3-8910
-ym2149_inst : ym2149 
+ym2149_inst : ym2149
 port map
 (
 	CLK       => clock,

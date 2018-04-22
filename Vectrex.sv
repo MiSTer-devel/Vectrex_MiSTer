@@ -122,9 +122,11 @@ localparam CONF_STR = {
 	"O56,Pseudocolor,Off,1,2,3;",
 	"O8,Overburn,No,Yes;",
 	"-;",
+	"OA,CPU Model,1,2;",
+	"-;",
 	"R7,Reset;",
 	"J1,Button 1,Button 2,Button 3,Button 4;",
-	"V,v2.10.",`BUILD_DATE
+	"V,v2.20.",`BUILD_DATE
 };
 
 ////////////////////   CLOCKS   ///////////////////
@@ -226,6 +228,7 @@ vectrex vectrex
 (
 	.reset(reset),
 	.clock(clk_sys),
+	.cpu(status[10]),
 
 	.cart_data(ioctl_dout),
 	.cart_addr(ioctl_addr),
