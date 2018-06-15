@@ -187,6 +187,14 @@ signal via_pa_o        : std_logic_vector(7 downto 0);
 signal via_pb_o        : std_logic_vector(7 downto 0);
 signal via_irq_n       : std_logic;
 
+type delay_buffer_t is array(0 to 255) of std_logic_vector(17 downto 0);
+signal delay_buffer : delay_buffer_t;
+
+signal via_ca2_o_d : std_logic;
+signal via_cb2_o_d : std_logic;
+signal via_pa_o_d  : std_logic_vector(7 downto 0);
+signal via_pb_o_d  : std_logic_vector(7 downto 0);
+
 signal sh_dac          : std_logic;
 signal dac_mux         : std_logic_vector(2 downto 1);
 signal zero_integrator_n : std_logic;
@@ -329,13 +337,37 @@ begin
 --ADDRESS_MAP_END
 
 -- beam control
-sh_dac            <= via_pb_o(0);
-dac_mux           <= via_pb_o(2 downto 1);
-zero_integrator_n <= via_ca2_o;
-ramp_integrator_n <= via_pb_o(7);
-beam_blank_n      <= via_cb2_o;
 
-dac <= signed(via_pa_o(7)&via_pa_o); -- must ensure sign extension for 0x80 value to be used in integrator equation
+
+-- integrator related signals have to be delayed with respect to blank signal
+-- tuned value : ~94 @ clock_12
+-- (port A, port B, CA2 and CB2 are declared to be delayed. Unsued delayed signals/buffers
+-- will be removed automaticaly by compiler so no ressources will be wasted)
+
+process (clock)
+begin
+	if rising_edge(clock) then
+		if clken_12 = '1' then
+			delay_buffer(0) <= via_cb2_o & via_ca2_o & via_pb_o & via_pa_o;
+			for i in 255 downto 1 loop
+				delay_buffer(i) <= delay_buffer(i-1) ;
+			end loop;
+			
+			via_pa_o_d  <= delay_buffer(94)( 7 downto 0);
+			via_pb_o_d  <= delay_buffer(94)(15 downto 8);
+			via_ca2_o_d <= delay_buffer(94)(16);
+			via_cb2_o_d <= delay_buffer(94)(17);
+		end if;
+	end if;
+end process;	
+
+sh_dac            <= via_pb_o_d(0);
+dac_mux           <= via_pb_o_d(2 downto 1);
+zero_integrator_n <= via_ca2_o_d;
+ramp_integrator_n <= via_pb_o_d(7);
+beam_blank_n      <= via_cb2_o;      -- blank is not delayed
+	 			 
+dac <= signed(via_pa_o_d(7)&via_pa_o_d); -- must ensure sign extension for 0x80 value to be used in integrator equation
 
 process (clock)
 	variable limit_n : std_logic;
@@ -347,8 +379,8 @@ begin
 				case dac_mux is
 				when "00"   => dac_y     <= dac;
 				when "01"   => ref_level <= dac;
-				when "10"   => dac_z     <= via_pa_o;
-				when others => dac_sound <= via_pa_o;
+				when "10"   => dac_z     <= via_pa_o_d;
+				when others => dac_sound <= via_pa_o_d;
 				end case;
 			end if;
 
@@ -599,13 +631,13 @@ cpu_di <= cart_do when cart_cs  = '1' else
 -- players controls
 players_switches <= not(rt_2&lf_2&dn_2&up_2&rt_1&lf_1&dn_1&up_1);
 
-with dac_mux select
+with via_pb_o(2 downto 1) select  -- dac_mux but not delayed
 pot <= pot_x_1 when "00",
 		 pot_y_1 when "01",
 		 pot_x_2 when "10",
 		 pot_y_2 when others;
 
-compare <= '1' when (pot(7)&pot) > dac else '0';
+compare <= '1' when (pot(7)&pot) > signed(via_pa_o(7)&via_pa_o) else '0'; -- dac but not delayed
 
 --------------------------------------------------------------------
 
