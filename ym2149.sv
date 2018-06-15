@@ -1,33 +1,85 @@
+//
+// Copyright (c) MikeJ - Jan 2005
+// Copyright (c) 2016-2018 Sorgelig
+//
+// All rights reserved
+//
+// Redistribution and use in source and synthezised forms, with or without
+// modification, are permitted provided that the following conditions are met:
+//
+// Redistributions of source code must retain the above copyright notice,
+// this list of conditions and the following disclaimer.
+//
+// Redistributions in synthesized form must reproduce the above copyright
+// notice, this list of conditions and the following disclaimer in the
+// documentation and/or other materials provided with the distribution.
+//
+// Neither the name of the author nor the names of other contributors may
+// be used to endorse or promote products derived from this software without
+// specific prior written permission.
+//
+// THIS CODE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+// THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+// PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
 
+
+// BDIR  BC  MODE
+//   0   0   inactive
+//   0   1   read value
+//   1   0   write value
+//   1   1   set address
+//
+// Registers description
+// R0, R1, R2, R4, R4, R5 - Tone Generator Control
+// R6                     - Noise Generator Control
+// R7                     - Mixer Control-I/O Enable
+// R10, R11, R12          - Amplitude Control
+// R13, R14, R15          - Envelope Generator Control
+// R13, R14               - Envelope Period Control
+// R15                    - Envelope Shape/Cycle Control
 
 module ym2149
 (
-   input        CLK,		   // Global clock
-   input        CE,        // PSG Clock enable
-   input        RESET,	   // Chip RESET (set all Registers to '0', active hi)
-   input        BDIR,	   // Bus Direction (0 - read , 1 - write)
-   input        BC,		   // Bus control
-   input  [7:0] DI,	      // Data In
-   output [7:0] DO,	      // Data Out
-   output [7:0] CHANNEL_A, // PSG Output channel A
-   output [7:0] CHANNEL_B, // PSG Output channel B
-   output [7:0] CHANNEL_C, // PSG Output channel C
+	input        CLK,       // Global clock
+	input        CE,        // PSG Clock enable
+	input        RESET,     // Chip RESET (set all Registers to '0', active hi)
+	input        BDIR,      // Bus Direction (0 - read , 1 - write)
+	input        BC,        // Bus control
+	input  [7:0] DI,        // Data In
+	output [7:0] DO,        // Data Out
+	output [7:0] CHANNEL_A, // PSG Output channel A
+	output [7:0] CHANNEL_B, // PSG Output channel B
+	output [7:0] CHANNEL_C, // PSG Output channel C
 
-   input        SEL,
-   input        MODE,
-   output [5:0] ACTIVE,
+	input        SEL,
+	input        MODE,
 
-   input  [7:0] IOA_in,
-   output [7:0] IOA_out,
+	output [5:0] ACTIVE,
 
-   input  [7:0] IOB_in,
-   output [7:0] IOB_out
+	input  [7:0] IOA_in,
+	output [7:0] IOA_out,
+	output       IOA_OE_L,
+
+	input  [7:0] IOB_in,
+	output [7:0] IOB_out,
+	output       IOB_OE_L
 );
 
 assign ACTIVE = ~ymreg[7][5:0];
 
 assign     IOA_out = ymreg[14];
 assign     IOB_out = ymreg[15];
+assign     IOA_OE_L = ~ymreg[7][6];
+assign     IOB_OE_L = ~ymreg[7][7];
 
 reg        ena_div;
 reg        ena_div_noise;
@@ -210,29 +262,29 @@ always @(posedge CLK) begin
 	// 1 1 1 1  /___
 
 	if(RESET) begin
-		ymreg[0]  <= 0;
-		ymreg[1]  <= 0;
-		ymreg[2]  <= 0;
-		ymreg[3]  <= 0;
-		ymreg[4]  <= 0;
-		ymreg[5]  <= 0;
-		ymreg[6]  <= 0;
-		ymreg[7]  <= 255;
-		ymreg[8]  <= 0;
-		ymreg[9]  <= 0;
-		ymreg[10] <= 0;
-		ymreg[11] <= 0;
-		ymreg[12] <= 0;
-		ymreg[13] <= 0;
-		ymreg[14] <= 0;
-		ymreg[15] <= 0;
-		addr      <= 0;
-		env_vol   <= 0;
+		ymreg[0]  <= '0;
+		ymreg[1]  <= '0;
+		ymreg[2]  <= '0;
+		ymreg[3]  <= '0;
+		ymreg[4]  <= '0;
+		ymreg[5]  <= '0;
+		ymreg[6]  <= '0;
+		ymreg[7]  <= '1;
+		ymreg[8]  <= '0;
+		ymreg[9]  <= '0;
+		ymreg[10] <= '0;
+		ymreg[11] <= '0;
+		ymreg[12] <= '0;
+		ymreg[13] <= '0;
+		ymreg[14] <= '0;
+		ymreg[15] <= '0;
+		addr      <= '0;
+		env_vol   <= '0;
 	end else begin
 		old_BDIR <= BDIR;
 		if(~old_BDIR & BDIR) begin
 			if(BC) addr <= DI[3:0];
-			else begin 
+			else begin
 				ymreg[addr] <= DI;
 				env_reset <= (addr == 13);
 			end
@@ -299,6 +351,5 @@ wire [4:0] C = ~((ymreg[7][2] | tone_gen_op[3]) & (ymreg[7][5] | noise_gen_op)) 
 assign CHANNEL_A = MODE ? volTableAy[A[4:1]] : volTableYm[A];
 assign CHANNEL_B = MODE ? volTableAy[B[4:1]] : volTableYm[B];
 assign CHANNEL_C = MODE ? volTableAy[C[4:1]] : volTableYm[C];
-
 
 endmodule
