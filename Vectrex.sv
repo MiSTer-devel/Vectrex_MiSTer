@@ -117,11 +117,11 @@ localparam CONF_STR = {
 	"-;",
 	"O1,Aspect ratio,4:3,16:9;",
 	"O9,Frame,No,Yes;",
-	"-;",
 	"O4,Resolution,High,Low;",
 	"O23,Phosphor persistance,1,2,3,4;",
 	"O56,Pseudocolor,Off,1,2,3;",
 	"O8,Overburn,No,Yes;",
+	"OC,Port 2,Joystick,Speech;",
 	"-;",
 	"OA,CPU Model,1,2;",
 	"-;",
@@ -178,7 +178,7 @@ hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 wire [9:0] audio;
 assign AUDIO_L = {audio, 6'd0};
 assign AUDIO_R = {audio, 6'd0};
-assign AUDIO_S = 0;
+assign AUDIO_S = 1;
 assign AUDIO_MIX = 0;
 
 wire reset = (RESET | status[0] | status[7] | buttons[1] | ioctl_download | second_reset);
@@ -252,8 +252,9 @@ vectrex vectrex
 	.overburn(status[8]),
 	.frame_line(frame_line),
 
+	.speech_mode(status[12]),
 	.audio_out(audio),
-	
+
 	.up_1(joystick_0[4]),
 	.dn_1(joystick_0[5]),
 	.lf_1(joystick_0[6]),

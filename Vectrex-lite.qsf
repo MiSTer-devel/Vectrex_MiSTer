@@ -359,7 +359,10 @@ set_global_assignment -name VHDL_FILE bios_rom.vhd
 set_global_assignment -name VHDL_FILE gen_rom.vhd
 set_global_assignment -name VHDL_FILE gen_dpram.vhd
 set_global_assignment -name VHDL_FILE gen_ram.vhd
-set_global_assignment -name SYSTEMVERILOG_FILE ym2149.sv
+set_global_assignment -name SYSTEMVERILOG_FILE compressor.sv
+set_global_assignment -name VHDL_FILE sp0256.vhd
+set_global_assignment -name VHDL_FILE sp0256_al2_decoded.vhd
+set_global_assignment -name VHDL_FILE YM2149_linmix_sep.vhd
 set_global_assignment -name VHDL_FILE m6522a.vhd
 set_global_assignment -name VHDL_FILE cpu09l_128a.vhd
 set_global_assignment -name VERILOG_FILE mc6809is.v
