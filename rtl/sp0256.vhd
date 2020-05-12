@@ -106,7 +106,8 @@ use ieee.numeric_std.all;
 entity sp0256 is
 port
 (
-	clock_250k     : in std_logic;
+	clock          : in std_logic;
+	ce             : in std_logic;
 	reset          : in std_logic;
 
 	input_rdy      : out std_logic;
@@ -119,7 +120,6 @@ end sp0256;
 
 architecture syn of sp0256 is
   
- signal clock_250k_n : std_logic;
  signal rom_addr : std_logic_vector(11 downto 0);
  signal rom_do   : std_logic_vector( 7 downto 0);
 
@@ -157,7 +157,7 @@ architecture syn of sp0256 is
  signal coeff_idx : std_logic_vector(6 downto 0);
  
  type coeff_array_t is array(0 to  127) of integer range 0 to 511;
- signal coeff_array : coeff_array_t := (
+ constant coeff_array : coeff_array_t := (
     0,      9,      17,     25,     33,     41,     49,     57,
     65,     73,     81,     89,     97,     105,    113,    121,
     129,    137,    145,    153,    161,    169,    177,    185,
@@ -186,32 +186,33 @@ architecture syn of sp0256 is
 begin
 
 input_rdy <= input_rdy_in;
-clock_250k_n <= not clock_250k;
 
 -- stage counter : Fs=250k/25 = 10kHz
-process (clock_250k, reset)
+process (clock, reset)
   begin
 	if reset='1' then
 		stage <= 0;
 	else
-      if rising_edge(clock_250k) then
-			if stage >= 24 then 
-				stage <= 0;
-			else
-				stage <= stage + 1;
+      if rising_edge(clock) then
+			if ce = '1' then
+				if stage >= 24 then 
+					stage <= 0;
+				else
+					stage <= stage + 1;
+				end if;
 			end if;
 		end if;
 	end if;
 end process;
 
-process (clock_250k, reset)
+process (clock, reset)
   begin
 	if reset='1' then
 		input_rdy_in <= '1';
 		sound_on  <= '0';
 		noise_rng <= X"0001";
 	else
-      if rising_edge(clock_250k) then
+      if rising_edge(clock) then if ce = '1' then
 			
 			trig_allophone_r <= trig_allophone;
 			if trig_allophone = '1' and trig_allophone_r = '0' then
@@ -236,7 +237,7 @@ process (clock_250k, reset)
 					when 0 =>
 						rom_addr <= X"0"&allo_entry;						
 					when 1 =>
-						allo_addr_msb <= rom_do;
+						--allo_addr_msb <= rom_do;
 						rom_addr <= rom_addr + '1';
 					when 2 =>
 						allo_addr_lsb <= rom_do;
@@ -400,14 +401,14 @@ process (clock_250k, reset)
 			
 			end if;
 	
-		end if;
+		end if; end if;
 	end if;
 end process;
 
 compr: compressor
 port map
 (
-	clk  => clock_250k,
+	clk  => clock,
 	din  => audio,
 	dout => audio_int
 );
@@ -434,7 +435,7 @@ sum_out <= to_signed( 32767,16) when sum_out_ul >  32767 else
 -- sp0256-al2 prom (decoded)
 sp0256_al2_decoded : entity work.sp0256_al2_decoded
 port map(
- clk  => clock_250k_n,
+ clk  => clock,
  addr => rom_addr,
  data => rom_do  
 );

@@ -184,7 +184,7 @@ constant max_y         : integer := base_res*3*8;
 
 signal clken_12        : std_logic;
 signal clock_div2      : std_logic_vector(6 downto 0);
-signal clock_250k      : std_logic;
+signal ce_250k         : std_logic;
 signal cpu_en          : std_logic;
 signal rQ              : std_logic;
 signal E               : std_logic;
@@ -285,8 +285,6 @@ signal vcnt            : std_logic_vector(9 downto 0);
 signal hblank          : std_logic;
 signal vblank          : std_logic;
 
-signal ay_audio_chan   : std_logic_vector(1 downto 0);
-signal ay_audio_muxed  : std_logic_vector(7 downto 0);
 signal ay_do           : std_logic_vector(7 downto 0);
 signal ay_chan_a       : std_logic_vector(7 downto 0);
 signal ay_chan_b       : std_logic_vector(7 downto 0);
@@ -348,6 +346,32 @@ component mc6809 is port
 );
 end component mc6809;
 
+component ym2149
+port (
+	CLK       : in  std_logic;
+	CE        : in  std_logic;
+	RESET     : in  std_logic;
+	BDIR      : in  std_logic;
+	BC        : in  std_logic;
+	DI        : in  std_logic_vector(7 downto 0);
+	DO        : out std_logic_vector(7 downto 0);
+	CHANNEL_A : out std_logic_vector(7 downto 0);
+	CHANNEL_B : out std_logic_vector(7 downto 0);
+	CHANNEL_C : out std_logic_vector(7 downto 0);
+
+	SEL       : in  std_logic;
+	MODE      : in  std_logic;
+
+	IOA_in    : in  std_logic_vector(7 downto 0);
+	IOA_out   : out std_logic_vector(7 downto 0);
+	IOA_OEn   : out std_logic;
+
+	IOB_in    : in  std_logic_vector(7 downto 0);
+	IOB_out   : out std_logic_vector(7 downto 0);
+	IOB_OEn   : out std_logic
+);
+end component;
+
 begin
 
 --static ADDRESS_MAP_START(vectrex_map, AS_PROGRAM, 8, vectrex_state )
@@ -377,7 +401,7 @@ begin
 			via_pa_o_d  <= delay_buffer(94)( 7 downto 0);
 			via_pb_o_d  <= delay_buffer(94)(15 downto 8);
 			via_ca2_o_d <= delay_buffer(94)(16);
-			via_cb2_o_d <= delay_buffer(94)(17);
+			--via_cb2_o_d <= delay_buffer(94)(17);
 		end if;
 	end if;
 end process;
@@ -722,47 +746,28 @@ port map(
 
 -- sound	
 
-process (clock)
-begin
-	if rising_edge(clock) then
-		if rQ = '1' then
-			if ay_audio_chan = "00" then ay_chan_a <= ay_audio_muxed; end if;
-			if ay_audio_chan = "01" then ay_chan_b <= ay_audio_muxed; end if;
-			if ay_audio_chan = "10" then ay_chan_c <= ay_audio_muxed; end if;
-		end if;
-	end if;	
-end process;
-
-ay_3_8910_2 : entity work.YM2149a
+ay_3_8910 : ym2149
 port map(
-	-- data bus
-	I_DA       => via_pa_o,
-	O_DA       => ay_do,
-	O_DA_OE_L  => open,
+	DI        => via_pa_o,
+	DO        => ay_do,
+	BDIR      => via_pb_o(4),
+	BC        => via_pb_o(3),
 
-	-- control
-	I_A9_L     => '0',
-	I_A8       => '1',
-	I_BDIR     => via_pb_o(4),
-	I_BC2      => '1',
-	I_BC1      => via_pb_o(3),
-	I_SEL_L    => '1',
+	SEL       => '0',
+	MODE      => '0',
 
-	O_AUDIO    => ay_audio_muxed,
-	O_CHAN     => ay_audio_chan,
+	CHANNEL_A => ay_chan_a,
+	CHANNEL_B => ay_chan_b,
+	CHANNEL_C => ay_chan_c,
 
-	-- port a
-	I_IOA      => players_switches,
-	O_IOA      => open,
-	O_IOA_OE_L => ay_ioa_oe,
-	-- port b
-	I_IOB      => (others => '0'),
-	O_IOB      => open,
-	O_IOB_OE_L => open,
+	IOA_in    => players_switches,
+	IOA_OEn   => ay_ioa_oe,
 
-	ENA        => rQ,
-	RESET_L    => not reset,
-	CLK        => clock
+	IOB_in    => (others => '0'),
+
+	CE        => rQ,
+	RESET     => reset,
+	CLK       => clock
 );
 
 audio_ay  <=  ("0000"&ay_chan_a) + ("0000"&ay_chan_b) + ("0000"&ay_chan_c) + ("0000"&dac_sound);
@@ -827,8 +832,10 @@ begin
 		clock_div2 <= (others=>'0');
 	else
 		if rising_edge(clock) then
-			if clock_div2 >= 99 then
+			ce_250k <= '0';
+			if clock_div2 >= 95 then
 				clock_div2 <= (others=>'0');
+				ce_250k <= '1';
 			else
 				clock_div2 <= clock_div2 + '1';
 			end if;
@@ -836,15 +843,14 @@ begin
 	end if;
 end process;
 
-clock_250k <= clock_div2(6);
-
 -- sp0256 VHDL simulation
 speech_rdy <= not sp0256_rdy;
 
 sp0256 : entity work.sp0256
 port map
 (
-	clock_250k     => clock_250k,
+	clock          => clock,
+	ce             => ce_250k,
 	reset          => reset,
 
 	input_rdy      => sp0256_rdy,
