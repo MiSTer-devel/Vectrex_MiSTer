@@ -13,4 +13,5 @@ set_global_assignment -name VERILOG_FILE rtl/mc6809is.v
 set_global_assignment -name VERILOG_FILE rtl/mc6809.v
 set_global_assignment -name VHDL_FILE rtl/vectrex.vhd
 set_global_assignment -name SDC_FILE Vectrex.sdc
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/alphablend.sv
 set_global_assignment -name SYSTEMVERILOG_FILE Vectrex.sv

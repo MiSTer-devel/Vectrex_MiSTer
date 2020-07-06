@@ -155,6 +155,9 @@ localparam CONF_STR = {
 	"-;",
 	"OA,CPU Model,1,2;",
 	"-;",
+	"OD,use alpha,On,Off;",
+	"OE,Overlay Vector,On,Off;",
+	"-;",
 	"R7,Reset;",
 	"J1,Button 1,Button 2,Button 3,Button 4;",
 	"V,v",`BUILD_DATE
@@ -282,11 +285,22 @@ assign VGA_G = status[9] & frame_line ? 8'h00 : new_g;
 assign VGA_B = status[9] & frame_line ? 8'h00 : new_b;
 //assign VGA_R = bg_r;
 wire fg = |{r,g,b};
+wire bg = |{bg_r,bg_g,bg_b};
 
+wire [7:0] new_r = fg  ? blend_r : ~status[13] ? {bga_r,bga_r} : {bg_r,bg_r};
+wire [7:0] new_g = fg  ? blend_g : ~status[13] ? {bga_g,bga_g} : {bg_g,bg_g};
+wire [7:0] new_b = fg  ? blend_b : ~status[13] ? {bga_b,bga_b} : {bg_b,bg_b};
+
+wire [7:0] blend_r = ~status[14] ? bg ? { bg_r << 2 | bg_r[0] , bg_r << 2 | bg_r[0]} : r : r;
+wire [7:0] blend_g = ~status[14] ? bg ? { bg_g << 2 | bg_g[0] , bg_g << 2 | bg_g[0]} : g : g;
+wire [7:0] blend_b = ~status[14] ? bg ? { bg_b << 2 | bg_b[0] , bg_b << 2 | bg_b[0]} : b : b;
+
+
+/*
 wire [7:0] new_r = (fg && !bg_a) ? r : {bg_r,bg_r};
 wire [7:0] new_g = (fg && !bg_a) ? g : {bg_g,bg_g};
 wire [7:0] new_b = (fg && !bg_a) ? b : {bg_b,bg_b};
-
+*/
 wire rom_download = (ioctl_index[3:0]==4'b0001);
 
 vectrex vectrex
@@ -339,6 +353,7 @@ wire bg_download = ioctl_download && (ioctl_index == 2);
 reg [7:0] ioctl_dout_r;
 always @(posedge clk_sys) if(ioctl_wr & ~ioctl_addr[0]) ioctl_dout_r <= ioctl_dout;
 
+
 wire [15:0] pic_data;
 wire ram_ready;
 sdram sdram
@@ -355,6 +370,18 @@ sdram sdram
 	.ready(ram_ready)
 );
 
+
+wire [3:0] bga_r,bga_g,bga_b;
+alphablend alphablend(
+	.clk(clk_48),
+	.bg_a(bg_a),
+	.bg_r(bg_r),
+	.bg_g(bg_g),
+	.bg_b(bg_b),
+	.bga_r(bga_r),
+	.bga_g(bga_g),
+	.bga_b(bga_b)
+);
 
 wire VSync = VGA_VS;
 reg        pic_req;
@@ -376,7 +403,7 @@ always @(posedge clk_48) begin
 			if (status[4]) begin
 				pic_addr <= pic_addr + 2'd4;
 			end else begin
-					pic_addr <= pic_addr + 2'd2;
+				pic_addr <= pic_addr + 2'd2;
 			end
 				pic_req <= 1;
 			end
