@@ -127,7 +127,6 @@ assign ADC_BUS  = 'Z;
 assign USER_OUT = '1;
 assign {UART_RTS, UART_TXD, UART_DTR} = 0;
 assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
-assign {SDRAM_DQ, SDRAM_A, SDRAM_BA, SDRAM_CLK, SDRAM_CKE, SDRAM_DQML, SDRAM_DQMH, SDRAM_nWE, SDRAM_nCAS, SDRAM_nRAS, SDRAM_nCS} = 'Z;
 assign {DDRAM_CLK, DDRAM_BURSTCNT, DDRAM_ADDR, DDRAM_DIN, DDRAM_BE, DDRAM_RD, DDRAM_WE} = 0;
 
 assign LED_USER  = ioctl_download;
@@ -135,14 +134,15 @@ assign LED_DISK  = 0;
 assign LED_POWER = 0;
 assign BUTTONS   = 0;
 
-assign VIDEO_ARX = status[1] ? 8'd16 : 8'd1;
-assign VIDEO_ARY = status[1] ? 8'd9  : 8'd1; 
+assign VIDEO_ARX = status[1] ? 8'd16 : 8'd3;
+assign VIDEO_ARY = status[1] ? 8'd9  : 8'd4; 
 
 `include "build_id.v" 
 localparam CONF_STR = {
 	"VECTREX;;",
 	"-;",
-	"F,VECBINROM;",
+	"F1,VECBINROM;",
+	"F2,OVR;",
 	"OB,Skip logo,No,Yes;",
 	"-;",
 	"O1,Aspect ratio,4:3,16:9;",
@@ -163,18 +163,28 @@ localparam CONF_STR = {
 ////////////////////   CLOCKS   ///////////////////
 
 wire clk_sys;
+wire clk_mem;
+wire clk_48;
+wire pll_locked;
 
 pll pll
 (
 	.refclk(CLK_50M),
 	.rst(0),
-	.outclk_0(clk_sys)
+	.outclk_0(clk_sys),
+	.outclk_1(clk_mem),
+	.outclk_2(clk_48),
+   .locked(pll_locked)
 );
+
+
 
 ///////////////////////////////////////////////////
 
 wire [31:0] status;
 wire  [1:0] buttons;
+wire [15:0] sdram_sz;
+
 
 wire [15:0] joystick_0, joystick_1;
 wire [15:0] joya_0, joya_1;
@@ -182,6 +192,8 @@ wire        ioctl_download;
 wire        ioctl_wr;
 wire [24:0] ioctl_addr;
 wire  [7:0] ioctl_dout;
+wire  [7:0] ioctl_index;
+
 
 hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 (
@@ -197,7 +209,11 @@ hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 	.ioctl_wr(ioctl_wr),
 	.ioctl_addr(ioctl_addr),
 	.ioctl_dout(ioctl_dout),
+	.ioctl_index(ioctl_index),
 	.ioctl_wait(0),
+
+   .sdram_sz(sdram_sz),
+
 
 	.joystick_analog_0(joya_0),
 	.joystick_analog_1(joya_1),
@@ -238,6 +254,13 @@ assign VGA_HS = hblank;
 assign VGA_VS = vblank;
 assign VGA_DE = ~(hblank | vblank);
 
+reg ce_pix;
+always @(posedge clk_48) begin
+       ce_pix <= !ce_pix;
+end
+
+
+
 reg [14:0] addr_mask;
 always @(posedge clk_sys) begin
 	reg old_download;
@@ -254,9 +277,17 @@ wire [9:0] height[2] = '{720, 410};
 wire frame_line;
 wire [7:0] r,g,b;
 
-assign VGA_R = status[9] & frame_line ? 8'h40 : r;
-assign VGA_G = status[9] & frame_line ? 8'h00 : g;
-assign VGA_B = status[9] & frame_line ? 8'h00 : b;
+assign VGA_R = status[9] & frame_line ? 8'h40 : new_r;
+assign VGA_G = status[9] & frame_line ? 8'h00 : new_g;
+assign VGA_B = status[9] & frame_line ? 8'h00 : new_b;
+//assign VGA_R = bg_r;
+wire fg = |{r,g,b};
+
+wire [7:0] new_r = (fg && !bg_a) ? r : {bg_r,bg_r};
+wire [7:0] new_g = (fg && !bg_a) ? g : {bg_g,bg_g};
+wire [7:0] new_b = (fg && !bg_a) ? b : {bg_b,bg_b};
+
+wire rom_download = (ioctl_index==8'd1);
 
 vectrex vectrex
 (
@@ -267,7 +298,7 @@ vectrex vectrex
 	.cart_data(ioctl_dout),
 	.cart_addr(ioctl_addr),
 	.cart_mask(addr_mask),
-	.cart_wr(ioctl_wr & ioctl_download),
+	.cart_wr(ioctl_wr & ioctl_download ),
 	
 	.video_r(r),
 	.video_g(g),
@@ -301,5 +332,64 @@ vectrex vectrex
 	.pot_x_2(joya_1[7:0]  ? joya_1[7:0]   : {joystick_1[1], {7{joystick_1[0]}}}),
 	.pot_y_2(joya_1[15:8] ? ~joya_1[15:8] : {joystick_1[2], {7{joystick_1[3]}}})
 );
+
+
+wire bg_download = ioctl_download && (ioctl_index == 2);
+
+reg [7:0] ioctl_dout_r;
+always @(posedge clk_sys) if(ioctl_wr & ~ioctl_addr[0]) ioctl_dout_r <= ioctl_dout;
+
+wire [15:0] pic_data;
+wire ram_ready;
+sdram sdram
+(
+        .*,
+
+        .init(~pll_locked),
+        .clk(clk_mem),
+        .addr(bg_download ? ioctl_addr[24:0] : pic_addr),
+        .dout(pic_data),
+        .din(ioctl_dout),
+        .we(bg_download ? ioctl_wr : 1'b0),
+        .rd(pic_req),
+	.ready(ram_ready)
+);
+
+
+wire VSync = VGA_VS;
+reg        pic_req;
+reg [24:0] pic_addr;
+reg  [3:0] bg_r,bg_g,bg_b,bg_a;
+always @(posedge clk_48) begin
+	reg old_vs;
+	reg use_bg = 0;
+	
+	if(bg_download && sdram_sz[2:0]) use_bg <= 1;
+
+	pic_req <= 0;
+
+	if(use_bg) begin
+		if(ce_pix) begin
+			old_vs <= VSync;
+			{bg_a,bg_b,bg_g,bg_r} <= pic_data;
+			if(~(hblank|vblank)) begin
+			if (status[4]) begin
+				pic_addr <= pic_addr + 2'd4;
+			end else begin
+					pic_addr <= pic_addr + 2'd2;
+			end
+				pic_req <= 1;
+			end
+			
+			if(~old_vs & VSync) begin
+				pic_addr <= 0;
+				pic_req <= 1;
+			end
+		end
+	end
+	else begin
+		{bg_a,bg_b,bg_g,bg_r} <= 0;
+	end
+end
 
 endmodule

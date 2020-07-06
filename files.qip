@@ -6,6 +6,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/compressor.sv
 set_global_assignment -name VHDL_FILE rtl/sp0256.vhd
 set_global_assignment -name VHDL_FILE rtl/sp0256_al2_decoded.vhd
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/ym2149.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/sdram.sv
 set_global_assignment -name VHDL_FILE rtl/m6522a.vhd
 set_global_assignment -name VHDL_FILE rtl/cpu09l_128a.vhd
 set_global_assignment -name VERILOG_FILE rtl/mc6809is.v
