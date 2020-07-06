@@ -287,7 +287,7 @@ wire [7:0] new_r = (fg && !bg_a) ? r : {bg_r,bg_r};
 wire [7:0] new_g = (fg && !bg_a) ? g : {bg_g,bg_g};
 wire [7:0] new_b = (fg && !bg_a) ? b : {bg_b,bg_b};
 
-wire rom_download = (ioctl_index==8'd1);
+wire rom_download = (ioctl_index[3:0]==4'b0001);
 
 vectrex vectrex
 (
@@ -298,7 +298,7 @@ vectrex vectrex
 	.cart_data(ioctl_dout),
 	.cart_addr(ioctl_addr),
 	.cart_mask(addr_mask),
-	.cart_wr(ioctl_wr & ioctl_download ),
+	.cart_wr(ioctl_wr & ioctl_download & rom_download ),
 	
 	.video_r(r),
 	.video_g(g),
