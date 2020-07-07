@@ -430,7 +430,6 @@ always @(posedge clk_48) begin
 			{bg_a,bg_b,bg_g,bg_r} <= pic_data;
 			if(~(hblank|vblank)) begin
 				pic_addr <= pic_addr + 2'd2;
-			end
 				pic_req <= 1;
 			end
 			
