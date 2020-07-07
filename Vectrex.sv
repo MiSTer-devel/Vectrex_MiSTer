@@ -147,7 +147,8 @@ localparam CONF_STR = {
 	"-;",
 	"O1,Aspect ratio,4:3,16:9;",
 	"O9,Frame,No,Yes;",
-	"O4,Resolution,High,Low;",
+	//"O4,Resolution,High,Low;", // AJS - remove this because it ruins the
+	//overlay
 	"O23,Phosphor persistance,1,2,3,4;",
 	"O56,Pseudocolor,Off,1,2,3;",
 	"O8,Overburn,No,Yes;",
@@ -155,8 +156,12 @@ localparam CONF_STR = {
 	"-;",
 	"OA,CPU Model,1,2;",
 	"-;",
-	"OD,use alpha,On,Off;",
-	"OE,Overlay Vector,On,Off;",
+	// overlay alpha is useful for debugging
+	"OD,Overlay Alpha,On,Off;",
+	// blend the vector with the overlay
+	"OE,Color Vector,Overlay On,White always;",
+	//  tint the vector towards white
+	"OF,Tint Vector White,On,Off;",
 	"-;",
 	"R7,Reset;",
 	"J1,Button 1,Button 2,Button 3,Button 4;",
@@ -215,7 +220,7 @@ hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 	.ioctl_index(ioctl_index),
 	.ioctl_wait(0),
 
-   .sdram_sz(sdram_sz),
+	.sdram_sz(sdram_sz),
 
 
 	.joystick_analog_0(joya_0),
@@ -287,20 +292,35 @@ assign VGA_B = status[9] & frame_line ? 8'h00 : new_b;
 wire fg = |{r,g,b};
 wire bg = |{bg_r,bg_g,bg_b};
 
-wire [7:0] new_r = fg  ? blend_r : ~status[13] ? {bga_r,bga_r} : {bg_r,bg_r};
-wire [7:0] new_g = fg  ? blend_g : ~status[13] ? {bga_g,bga_g} : {bg_g,bg_g};
-wire [7:0] new_b = fg  ? blend_b : ~status[13] ? {bga_b,bga_b} : {bg_b,bg_b};
+//
+// if fg is non zero, then the beam is at this pixel
+//    make the color either:
+//       -- the background color (no alpha) if pixel is dark
+//       -- the background color tinted towards white if the beam is bright
+// if fg is zero, we use the background after an alpha * black has been applied
+
+wire [7:0] new_r = fg  ? bbrw : ~status[13] ? {bga_r,bga_r} : {bg_r,bg_r};
+wire [7:0] new_g = fg  ? bbgw : ~status[13] ? {bga_g,bga_g} : {bg_g,bg_g};
+wire [7:0] new_b = fg  ? bbbw : ~status[13] ? {bga_b,bga_b} : {bg_b,bg_b};
+
+wire [7:0] bbrw = ~status[15] ? blend_r_w : blend_r;
+wire [7:0] bbgw = ~status[15] ? blend_g_w : blend_g;
+wire [7:0] bbbw = ~status[15] ? blend_b_w : blend_b;
+
+
+// tint it towards white when it is brighter, otherwise use the background
+// color (no alpha)
+// r + (255-r)*tint
+// to simplify we want tint ~ 3/4 =  ( 1/4 + 1/2 )
+wire [7:0] blend_r_w = r > 108 ? (blend_r + ((8'd255-blend_r)>>1) + ((8'd255-blend_r)>>2) ) : blend_r;
+wire [7:0] blend_g_w = r > 108 ? (blend_g + ((8'd255-blend_g)>>1) + ((8'd255-blend_g)>>2) ) : blend_g;
+wire [7:0] blend_b_w = r > 108 ? (blend_b + ((8'd255-blend_b)>>1) + ((8'd255-blend_b)>>2) ) : blend_b;
+
 
 wire [7:0] blend_r = ~status[14] ? bg ? { bg_r << 2 | bg_r[0] , bg_r << 2 | bg_r[0]} : r : r;
 wire [7:0] blend_g = ~status[14] ? bg ? { bg_g << 2 | bg_g[0] , bg_g << 2 | bg_g[0]} : g : g;
 wire [7:0] blend_b = ~status[14] ? bg ? { bg_b << 2 | bg_b[0] , bg_b << 2 | bg_b[0]} : b : b;
 
-
-/*
-wire [7:0] new_r = (fg && !bg_a) ? r : {bg_r,bg_r};
-wire [7:0] new_g = (fg && !bg_a) ? g : {bg_g,bg_g};
-wire [7:0] new_b = (fg && !bg_a) ? b : {bg_b,bg_b};
-*/
 wire rom_download = (ioctl_index[3:0]==4'b0001);
 
 vectrex vectrex
@@ -347,7 +367,11 @@ vectrex vectrex
 	.pot_y_2(joya_1[15:8] ? ~joya_1[15:8] : {joystick_1[2], {7{joystick_1[3]}}})
 );
 
-
+//
+// Load 16bit color data from the ioctl as a file load
+//
+// the format is RBGA with each channel taking 4 bits
+//
 wire bg_download = ioctl_download && (ioctl_index == 2);
 
 reg [7:0] ioctl_dout_r;
@@ -370,7 +394,12 @@ sdram sdram
 	.ready(ram_ready)
 );
 
-
+//
+// Alpha Blend is a table lookup to mix the color with black
+//
+// we can't hardcode it, because when the light comes through
+// the overlay we need the original color
+//
 wire [3:0] bga_r,bga_g,bga_b;
 alphablend alphablend(
 	.clk(clk_48),
@@ -400,9 +429,6 @@ always @(posedge clk_48) begin
 			old_vs <= VSync;
 			{bg_a,bg_b,bg_g,bg_r} <= pic_data;
 			if(~(hblank|vblank)) begin
-			if (status[4]) begin
-				pic_addr <= pic_addr + 2'd4;
-			end else begin
 				pic_addr <= pic_addr + 2'd2;
 			end
 				pic_req <= 1;
