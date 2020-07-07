@@ -6,12 +6,12 @@ The overlays should be PNGs with an Alpha channel  540px x 720 px.  The shell_co
 
 ## Overlay Sources
 
-*https://github.com/libretro/overlay-borders
+* https://github.com/libretro/overlay-borders
 They have an MIT license.
 
-*https://github.com/thebezelproject/bezelproject-GCEVectrex/tree/master/retroarch/overlay/GameBezels/GCEVectrex
+* https://github.com/thebezelproject/bezelproject-GCEVectrex/tree/master/retroarch/overlay/GameBezels/GCEVectrex
 
-*https://github.com/raphkoster/vectrex-overlays
+* https://github.com/raphkoster/vectrex-overlays
 
 
 
