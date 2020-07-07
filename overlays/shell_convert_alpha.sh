@@ -9,3 +9,4 @@ done
 
 rm overlays.zip
 zip -r overlays.zip *.ovr
+rm *.ovr
