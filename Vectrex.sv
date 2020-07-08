@@ -135,8 +135,8 @@ assign LED_DISK  = 0;
 assign LED_POWER = 0;
 assign BUTTONS   = 0;
 
-assign VIDEO_ARX = status[1] ? 8'd16 : 8'd3;
-assign VIDEO_ARY = status[1] ? 8'd9  : 8'd4; 
+assign VIDEO_ARX = status[1] ? 8'd16 : 8'd9;
+assign VIDEO_ARY = status[1] ? 8'd9  : 8'd11; 
 
 `include "build_id.v" 
 localparam CONF_STR = {
