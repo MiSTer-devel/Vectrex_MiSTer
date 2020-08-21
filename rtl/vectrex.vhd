@@ -593,10 +593,10 @@ begin
 			end if;
 		end if;
 
-		if vcnt = 0 or vcnt = (video_height-1) then
+		if vcnt = 0 or vcnt = (video_height-2) then
 			if hcnt = 3             then frame_line <= '1'; end if;
 			if hcnt = video_width+3 then frame_line <= '0'; end if;
-		elsif vcnt > 0 and vcnt < (video_height-1) then
+		elsif vcnt > 0 and vcnt < (video_height-2) then
 			if hcnt = 3 or hcnt = video_width+2 then
 				frame_line <= '1';
 			else
