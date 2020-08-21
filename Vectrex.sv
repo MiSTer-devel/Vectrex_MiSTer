@@ -372,20 +372,22 @@ vectrex vectrex
 // the format is RBGA with each channel taking 4 bits
 //
 
-wire [15:0] pic_data;
+reg [7:0] ioctl_dout_r;
+always @(posedge clk_sys) if(ioctl_wr & ~ioctl_addr[0]) ioctl_dout_r <= ioctl_dout;
+
+wire [31:0] sd_data;
 wire ram_ready;
 sdram sdram
 (
 	.*,
-
+	
 	.init(~pll_locked),
 	.clk(clk_mem),
-	.addr(bg_download ? ioctl_addr[24:0] : pic_addr),
-	.dout(pic_data),
-	.din(ioctl_dout),
-	.we(bg_download ? ioctl_wr : 1'b0),
-	.rd(pic_req),
-	.ready(ram_ready)
+	.ch1_addr(bg_download ? ioctl_addr[24:1] : {pic_addr[24:2],1'b0}),
+	.ch1_dout(sd_data),
+	.ch1_din({ioctl_dout, ioctl_dout_r}),
+	.ch1_req(bg_download ? (ioctl_wr & ioctl_addr[0]) : pic_req),
+	.ch1_rnw(~bg_download)
 );
 
 //
@@ -407,30 +409,40 @@ alphablend alphablend(
 );
 
 wire VSync = VGA_VS;
+reg [15:0] pic_data[2];
 reg        pic_req;
-reg [24:0] pic_addr;
+reg [24:1] pic_addr;
 reg  [3:0] bg_r,bg_g,bg_b,bg_a;
 always @(posedge clk_48) begin
 	reg old_vs;
 	reg use_bg = 0;
+	reg [1:0] cnt;
 	
 	if(rom_download) use_bg <= 0;
 	if(bg_download && sdram_sz[2:0]) use_bg <= 1;
 
 	pic_req <= 0;
 
-	if(use_bg) begin
+	if(use_bg & ~bg_download) begin
 		if(ce_pix) begin
+			
+			cnt <= cnt >> 1;
+			if(cnt[0]) {pic_data[1],pic_data[0]} <= sd_data;
+			
 			old_vs <= VSync;
-			{bg_a,bg_b,bg_g,bg_r} <= bg_download ? 16'd0 : pic_data;
 			if(~(hblank|vblank)) begin
-				pic_addr <= pic_addr + 2'd2;
-				pic_req <= 1;
+				{bg_a,bg_b,bg_g,bg_r} <= pic_data[~pic_addr[1]];
+				pic_addr <= pic_addr + 2'd1;
+				if(pic_addr[1]) begin
+					pic_req <= 1;
+					cnt <= 2;
+				end
 			end
 			
 			if(~old_vs & VSync) begin
 				pic_addr <= 0;
 				pic_req <= 1;
+				cnt <= 2;
 			end
 		end
 	end
