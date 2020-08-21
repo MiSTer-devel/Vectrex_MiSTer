@@ -64,7 +64,7 @@ module emu
 	// b[0]: osd button
 	output  [1:0] BUTTONS,
 
-        input         CLK_AUDIO, // 24.576 MHz
+	input         CLK_AUDIO, // 24.576 MHz
 	output [15:0] AUDIO_L,
 	output [15:0] AUDIO_R,
 	output        AUDIO_S, // 1 - signed audio samples, 0 - unsigned
@@ -142,8 +142,9 @@ assign VIDEO_ARY = status[1] ? 8'd9  : 8'd11;
 localparam CONF_STR = {
 	"VECTREX;;",
 	"-;",
+	"f1,OVR;",
 	"F1,VECBINROM;",
-	"F2,OVR;",
+	"F2,OVR,Load Overlay;",
 	"OB,Skip logo,No,Yes;",
 	"-;",
 	"O1,Aspect ratio,4:3,16:9;",
@@ -186,8 +187,6 @@ pll pll
    .locked(pll_locked)
 );
 
-
-
 ///////////////////////////////////////////////////
 
 wire [31:0] status;
@@ -201,7 +200,7 @@ wire        ioctl_download;
 wire        ioctl_wr;
 wire [24:0] ioctl_addr;
 wire  [7:0] ioctl_dout;
-wire  [7:0] ioctl_index;
+wire [15:0] ioctl_index;
 
 
 hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
@@ -252,6 +251,7 @@ always @(posedge clk_sys) begin
 	end
 end
 
+
 wire hblank, vblank;
 
 assign CLK_VIDEO = clk_sys;
@@ -264,20 +264,7 @@ assign VGA_VS = vblank;
 assign VGA_DE = ~(hblank | vblank);
 
 reg ce_pix;
-always @(posedge clk_48) begin
-       ce_pix <= !ce_pix;
-end
-
-
-
-reg [14:0] addr_mask;
-always @(posedge clk_sys) begin
-	reg old_download;
-	
-	old_download <= ioctl_download;
-	if(~old_download & ioctl_download) addr_mask <= 0;
-	if(ioctl_download && ioctl_wr && (ioctl_addr[14:0] & ~addr_mask)) addr_mask <= ((addr_mask<<1)|15'd1);
-end
+always @(posedge clk_48) ce_pix <= !ce_pix;
 
 wire [4:0] pers[4]   = '{8,4,2,1};
 wire [9:0] width[2]  = '{540, 332};
@@ -322,7 +309,18 @@ wire [7:0] blend_r = ~status[14] ? bg ? { bg_r << 2 | bg_r[0] , bg_r << 2 | bg_r
 wire [7:0] blend_g = ~status[14] ? bg ? { bg_g << 2 | bg_g[0] , bg_g << 2 | bg_g[0]} : g : g;
 wire [7:0] blend_b = ~status[14] ? bg ? { bg_b << 2 | bg_b[0] , bg_b << 2 | bg_b[0]} : b : b;
 
-wire rom_download = (ioctl_index[3:0]==4'b0001);
+
+wire rom_download = ioctl_download && (ioctl_index[4:0] <= 1) && (ioctl_index[9:8] == 0);
+wire bg_download  = ioctl_download && ((ioctl_index[4:0] == 2) || (ioctl_index[9:8] == 1));
+
+reg [14:0] addr_mask;
+always @(posedge clk_sys) begin
+	reg old_download;
+	
+	old_download <= rom_download;
+	if(~old_download & rom_download) addr_mask <= 0;
+	if(rom_download && ioctl_wr && (ioctl_addr[14:0] & ~addr_mask)) addr_mask <= ((addr_mask<<1)|15'd1);
+end
 
 vectrex vectrex
 (
@@ -373,25 +371,20 @@ vectrex vectrex
 //
 // the format is RBGA with each channel taking 4 bits
 //
-wire bg_download = ioctl_download && (ioctl_index == 2);
-
-reg [7:0] ioctl_dout_r;
-always @(posedge clk_sys) if(ioctl_wr & ~ioctl_addr[0]) ioctl_dout_r <= ioctl_dout;
-
 
 wire [15:0] pic_data;
 wire ram_ready;
 sdram sdram
 (
-        .*,
+	.*,
 
-        .init(~pll_locked),
-        .clk(clk_mem),
-        .addr(bg_download ? ioctl_addr[24:0] : pic_addr),
-        .dout(pic_data),
-        .din(ioctl_dout),
-        .we(bg_download ? ioctl_wr : 1'b0),
-        .rd(pic_req),
+	.init(~pll_locked),
+	.clk(clk_mem),
+	.addr(bg_download ? ioctl_addr[24:0] : pic_addr),
+	.dout(pic_data),
+	.din(ioctl_dout),
+	.we(bg_download ? ioctl_wr : 1'b0),
+	.rd(pic_req),
 	.ready(ram_ready)
 );
 
@@ -421,6 +414,7 @@ always @(posedge clk_48) begin
 	reg old_vs;
 	reg use_bg = 0;
 	
+	if(rom_download) use_bg <= 0;
 	if(bg_download && sdram_sz[2:0]) use_bg <= 1;
 
 	pic_req <= 0;
@@ -428,7 +422,7 @@ always @(posedge clk_48) begin
 	if(use_bg) begin
 		if(ce_pix) begin
 			old_vs <= VSync;
-			{bg_a,bg_b,bg_g,bg_r} <= pic_data;
+			{bg_a,bg_b,bg_g,bg_r} <= bg_download ? 16'd0 : pic_data;
 			if(~(hblank|vblank)) begin
 				pic_addr <= pic_addr + 2'd2;
 				pic_req <= 1;
