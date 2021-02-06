@@ -1,4 +1,4 @@
-# Vectrex for [MiSTer Board](https://github.com/MiSTer-devel/Main_MiSTer/wiki)
+# [Vectrex](https://en.wikipedia.org/wiki/Vectrex) for [MiSTer Platform](https://github.com/MiSTer-devel/Main_MiSTer/wiki)
 
 Port of Vectrex by Dar (darfpga@aol.fr) http://darfpga.blogspot.fr
 
