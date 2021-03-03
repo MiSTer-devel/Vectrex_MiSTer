@@ -39,8 +39,9 @@ module emu
 	output        CE_PIXEL,
 
 	//Video aspect ratio for HDMI. Most retro systems have ratio 4:3.
-	output [11:0] VIDEO_ARX,
-	output [11:0] VIDEO_ARY,
+	//if VIDEO_ARX[12] or VIDEO_ARY[12] is set then [11:0] contains scaled size instead of aspect ratio.
+	output [12:0] VIDEO_ARX,
+	output [12:0] VIDEO_ARY,
 
 	output  [7:0] VGA_R,
 	output  [7:0] VGA_G,
@@ -51,6 +52,9 @@ module emu
 	output        VGA_F1,
 	output [1:0]  VGA_SL,
 	output        VGA_SCALER, // Force VGA scaler
+
+	input  [11:0] HDMI_WIDTH,
+	input  [11:0] HDMI_HEIGHT,
 
 `ifdef USE_FB
 	// Use framebuffer in DDRAM (USE_FB=1 in qsf)
@@ -182,9 +186,18 @@ assign BUTTONS   = 0;
 assign VGA_SCALER= 0;
 
 wire [1:0] ar = status[17:16];
+video_freak video_freak
+(
+	.*,
+	.VGA_DE_IN(VGA_DE),
+	.VGA_DE(),
 
-assign VIDEO_ARX = (!ar) ? 12'd9  : (ar - 1'd1);
-assign VIDEO_ARY = (!ar) ? 12'd11 : 12'd0;
+	.ARX((!ar) ? 12'd9  : (ar - 1'd1)),
+	.ARY((!ar) ? 12'd11 : 12'd0),
+	.CROP_SIZE(0),
+	.CROP_OFF(0),
+	.SCALE(status[19:18])
+);
 
 `include "build_id.v" 
 localparam CONF_STR = {
@@ -196,15 +209,13 @@ localparam CONF_STR = {
 	"OB,Skip logo,No,Yes;",
 	"-;",
 	"OGH,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
+	"OIJ,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"O9,Frame,No,Yes;",
 	//"O4,Resolution,High,Low;", // AJS - remove this because it ruins the
 	//overlay
 	"O23,Phosphor persistance,1,2,3,4;",
 	"O56,Pseudocolor,Off,1,2,3;",
 	"O8,Overburn,No,Yes;",
-	"OC,Port 2,Joystick,Speech;",
-	"-;",
-	"OA,CPU Model,1,2;",
 	"-;",
 	// overlay alpha is useful for debugging
 	"OD,Overlay Alpha,On,Off;",
@@ -212,6 +223,9 @@ localparam CONF_STR = {
 	"OE,Color Vector,Overlay On,White always;",
 	//  tint the vector towards white
 	"OF,Tint Vector White,On,Off;",
+	"-;",
+	"OC,Port 2,Joystick,Speech;",
+	"OA,CPU Model,1,2;",
 	"-;",
 	"R7,Reset;",
 	"J1,Button 1,Button 2,Button 3,Button 4;",
@@ -249,7 +263,6 @@ wire        ioctl_wr;
 wire [24:0] ioctl_addr;
 wire  [7:0] ioctl_dout;
 wire [15:0] ioctl_index;
-
 
 hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 (
@@ -388,8 +401,8 @@ vectrex vectrex
 	.video_hblank(hblank),
 	.video_vblank(vblank),
 
-	.video_width(width[status[4]]),
-	.video_height(height[status[4]]),
+	.video_width(width[0]), //status[4]]),
+	.video_height(height[0]), //status[4]]),
 
 	.color(status[6:5]),
 	.pers(pers[status[3:2]]),
