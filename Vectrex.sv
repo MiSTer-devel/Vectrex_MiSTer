@@ -30,6 +30,7 @@ module emu
 
 	//Must be passed to hps_io module
 	inout  [45:0] HPS_BUS,
+	inout  [48:0] HPS_BUS,
 
 	//Base video clock. Usually equals to CLK_SYS.
 	output        CLK_VIDEO,
@@ -55,8 +56,9 @@ module emu
 
 	input  [11:0] HDMI_WIDTH,
 	input  [11:0] HDMI_HEIGHT,
+	output        HDMI_FREEZE,
 
-`ifdef USE_FB
+`ifdef MISTER_FB
 	// Use framebuffer in DDRAM (USE_FB=1 in qsf)
 	// FB_FORMAT:
 	//    [2:0] : 011=8bpp(palette) 100=16bpp 101=24bpp 110=32bpp
@@ -74,6 +76,7 @@ module emu
 	input         FB_LL,
 	output        FB_FORCE_BLANK,
 
+`ifdef MISTER_FB_PALETTE
 	// Palette control for 8bit modes.
 	// Ignored for other video modes.
 	output        FB_PAL_CLK,
@@ -81,6 +84,7 @@ module emu
 	output [23:0] FB_PAL_DOUT,
 	input  [23:0] FB_PAL_DIN,
 	output        FB_PAL_WR,
+`endif
 `endif
 
 	output        LED_USER,  // 1 - ON, 0 - OFF.
@@ -112,7 +116,6 @@ module emu
 	output        SD_CS,
 	input         SD_CD,
 
-`ifdef USE_DDRAM
 	//High latency DDR3 RAM interface
 	//Use for non-critical time purposes
 	output        DDRAM_CLK,
@@ -125,9 +128,7 @@ module emu
 	output [63:0] DDRAM_DIN,
 	output  [7:0] DDRAM_BE,
 	output        DDRAM_WE,
-`endif
 
-`ifdef USE_SDRAM
 	//SDRAM interface with lower latency
 	output        SDRAM_CLK,
 	output        SDRAM_CKE,
@@ -140,10 +141,10 @@ module emu
 	output        SDRAM_nCAS,
 	output        SDRAM_nRAS,
 	output        SDRAM_nWE,
-`endif
 
-`ifdef DUAL_SDRAM
+`ifdef MISTER_DUAL_SDRAM
 	//Secondary SDRAM
+	//Set all output SDRAM_* signals to Z ASAP if SDRAM2_EN is 0
 	input         SDRAM2_EN,
 	output        SDRAM2_CLK,
 	output [12:0] SDRAM2_A,
@@ -173,17 +174,28 @@ module emu
 	input         OSD_STATUS
 );
 
+///////// Default values for ports not used in this core /////////
+
 assign ADC_BUS  = 'Z;
 assign USER_OUT = '1;
 assign {UART_RTS, UART_TXD, UART_DTR} = 0;
 assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
-assign {DDRAM_CLK, DDRAM_BURSTCNT, DDRAM_ADDR, DDRAM_DIN, DDRAM_BE, DDRAM_RD, DDRAM_WE} = 0;
+assign {DDRAM_CLK, DDRAM_BURSTCNT, DDRAM_ADDR, DDRAM_DIN, DDRAM_BE, DDRAM_RD, DDRAM_WE} = '0;
 
-assign LED_USER  = ioctl_download;
+assign VGA_SL = 0;
+assign VGA_F1 = 0;
+assign VGA_SCALER  = 0;
+assign HDMI_FREEZE = 0;
+
+assign AUDIO_MIX = 0;
+
 assign LED_DISK  = 0;
 assign LED_POWER = 0;
 assign BUTTONS   = 0;
-assign VGA_SCALER= 0;
+
+//////////////////////////////////////////////////////////////////
+
+assign LED_USER  = ioctl_download;
 
 wire [1:0] ar = status[17:16];
 video_freak video_freak
@@ -198,6 +210,13 @@ video_freak video_freak
 	.CROP_OFF(0),
 	.SCALE(status[19:18])
 );
+
+// Status Bit Map:
+//              Upper                          Lower
+// 0         1         2         3          4         5         6
+// 01234567890123456789012345678901 23456789012345678901234567890123
+// 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
+// X XX XXXXXXXXXXXXXXX
 
 `include "build_id.v" 
 localparam CONF_STR = {
@@ -246,30 +265,27 @@ pll pll
 	.outclk_0(clk_sys),
 	.outclk_1(clk_mem),
 	.outclk_2(clk_48),
-   .locked(pll_locked)
+	.locked(pll_locked)
 );
 
 ///////////////////////////////////////////////////
 
 wire [31:0] status;
-wire  [1:0] buttons;
+wire [ 1:0] buttons;
 wire [15:0] sdram_sz;
-
 
 wire [15:0] joystick_0, joystick_1;
 wire [15:0] joya_0, joya_1;
 wire        ioctl_download;
 wire        ioctl_wr;
 wire [24:0] ioctl_addr;
-wire  [7:0] ioctl_dout;
+wire [ 7:0] ioctl_dout;
 wire [15:0] ioctl_index;
 
-hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
+hps_io #(.CONF_STR(CONF_STR)) hps_io
 (
 	.clk_sys(clk_sys),
 	.HPS_BUS(HPS_BUS),
-
-	.conf_str(CONF_STR),
 
 	.buttons(buttons),
 	.status(status),
@@ -283,9 +299,8 @@ hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 
 	.sdram_sz(sdram_sz),
 
-
-	.joystick_analog_0(joya_0),
-	.joystick_analog_1(joya_1),
+	.joystick_l_analog_0(joya_0),
+	.joystick_r_analog_1(joya_1),
 	.joystick_0(joystick_0),
 	.joystick_1(joystick_1)
 );
@@ -294,7 +309,6 @@ wire [9:0] audio;
 assign AUDIO_L = {audio, 6'd0};
 assign AUDIO_R = {audio, 6'd0};
 assign AUDIO_S = 1;
-assign AUDIO_MIX = 0;
 
 wire reset = (RESET | status[0] | status[7] | buttons[1] | ioctl_download | second_reset);
 
@@ -317,8 +331,7 @@ wire hblank, vblank;
 
 assign CLK_VIDEO = clk_sys;
 assign CE_PIXEL = 1;
-assign VGA_SL = 0;
-assign VGA_F1 = 0;
+
 
 assign VGA_HS = hblank;
 assign VGA_VS = vblank;
@@ -332,14 +345,14 @@ wire [9:0] width[2]  = '{540, 332};
 wire [9:0] height[2] = '{720, 410};
 
 wire frame_line;
-wire [7:0] r,g,b;
+wire [7:0] r, g, b;
 
 assign VGA_R = status[9] & frame_line ? 8'h40 : new_r;
 assign VGA_G = status[9] & frame_line ? 8'h00 : new_g;
 assign VGA_B = status[9] & frame_line ? 8'h00 : new_b;
 //assign VGA_R = bg_r;
-wire fg = |{r,g,b};
-wire bg = |{bg_r,bg_g,bg_b};
+wire fg = |{r, g, b};
+wire bg = |{bg_r, bg_g, bg_b};
 
 //
 // if fg is non zero, then the beam is at this pixel
@@ -371,7 +384,7 @@ wire [7:0] blend_g = ~status[14] ? bg ? { bg_g << 2 | bg_g[0] , bg_g << 2 | bg_g
 wire [7:0] blend_b = ~status[14] ? bg ? { bg_b << 2 | bg_b[0] , bg_b << 2 | bg_b[0]} : b : b;
 
 
-wire rom_download = ioctl_download && (ioctl_index[4:0] <= 1) && (ioctl_index[9:8] == 0);
+wire rom_download = ioctl_download &&  (ioctl_index[4:0] <= 1) && (ioctl_index[9:8] == 0);
 wire bg_download  = ioctl_download && ((ioctl_index[4:0] == 2) || (ioctl_index[9:8] == 1));
 
 reg [14:0] addr_mask;
@@ -457,7 +470,7 @@ sdram sdram
 // we can't hardcode it, because when the light comes through
 // the overlay we need the original color
 //
-wire [7:0] bga_r,bga_g,bga_b;
+wire [7:0] bga_r, bga_g, bga_b;
 alphablend alphablend(
 	.clk(clk_48),
 	.bg_a(bg_a),
@@ -473,7 +486,7 @@ wire VSync = VGA_VS;
 reg [15:0] pic_data[2];
 reg        pic_req;
 reg [24:1] pic_addr;
-reg  [3:0] bg_r,bg_g,bg_b,bg_a;
+reg [ 3:0] bg_r, bg_g, bg_b, bg_a;
 always @(posedge clk_48) begin
 	reg old_vs;
 	reg use_bg = 0;
@@ -492,7 +505,7 @@ always @(posedge clk_48) begin
 			
 			old_vs <= VSync;
 			if(~(hblank|vblank)) begin
-				{bg_a,bg_b,bg_g,bg_r} <= pic_data[~pic_addr[1]];
+				{bg_a, bg_b, bg_g, bg_r} <= pic_data[~pic_addr[1]];
 				pic_addr <= pic_addr + 2'd1;
 				if(pic_addr[1]) begin
 					pic_req <= 1;
@@ -508,7 +521,7 @@ always @(posedge clk_48) begin
 		end
 	end
 	else begin
-		{bg_a,bg_b,bg_g,bg_r} <= 0;
+		{bg_a, bg_b, bg_g, bg_r} <= 0;
 	end
 end
 
