@@ -299,7 +299,7 @@ hps_io #(.CONF_STR(CONF_STR)) hps_io
 	.sdram_sz(sdram_sz),
 
 	.joystick_l_analog_0(joya_0),
-	.joystick_r_analog_1(joya_1),
+	.joystick_l_analog_1(joya_1),
 	.joystick_0(joystick_0),
 	.joystick_1(joystick_1)
 );
