@@ -195,8 +195,8 @@ video_freak video_freak
 	.VGA_DE_IN(VGA_DE),
 	.VGA_DE(),
 
-	.ARX((!ar) ? 12'd9  : (ar - 1'd1)),
-	.ARY((!ar) ? 12'd11 : 12'd0),
+	.ARX((!ar) ? (status[20] ? 12'd11 : 12'd9 ) : (ar - 1'd1)),
+	.ARY((!ar) ? (status[20] ? 12'd9  : 12'd11) : 12'd0),
 	.CROP_SIZE(0),
 	.CROP_OFF(0),
 	.SCALE(status[19:18])
@@ -211,6 +211,7 @@ localparam CONF_STR = {
 	"F2,OVR,Load Overlay;",
 	"OB,Skip logo,No,Yes;",
 	"-;",
+	"OK,Orientation,Horz,Vert;",
 	"OGH,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"OIJ,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"O9,Frame,No,Yes;",
@@ -327,9 +328,10 @@ assign VGA_DE = ~(hblank | vblank);
 reg ce_pix;
 always @(posedge clk_48) ce_pix <= !ce_pix;
 
-wire [4:0] pers[4]   = '{8,4,2,1};
-wire [9:0] width[2]  = '{540, 332};
-wire [9:0] height[2] = '{720, 410};
+wire [4:0]  pers[4]   = '{8,4,2,1};
+wire [9:0]  width[2]  = '{540, 332};
+wire [9:0]  height[2] = '{720, 410};
+wire [19:0] wm[2]     = '{539*720, 331*410};
 
 wire frame_line;
 wire [7:0] r,g,b;
@@ -401,8 +403,9 @@ vectrex vectrex
 	.video_hblank(hblank),
 	.video_vblank(vblank),
 
-	.video_width(width[0]), //status[4]]),
-	.video_height(height[0]), //status[4]]),
+	.v_orient(status[20]),
+	.v_width(width[0]), //status[4]]),
+	.v_height(height[0]), //status[4]]),
 
 	.color(status[6:5]),
 	.pers(pers[status[3:2]]),
@@ -433,21 +436,59 @@ vectrex vectrex
 // the format is RBGA with each channel taking 4 bits
 //
 
-reg [7:0] ioctl_dout_r;
-always @(posedge clk_sys) if(ioctl_wr & ~ioctl_addr[0]) ioctl_dout_r <= ioctl_dout;
+reg        dl_wr;
+reg [15:0] dl_data;
+reg [23:0] dl_addr;
+always @(posedge clk_sys) begin
+	reg [7:0] ioctl_dout_r;
+	reg [19:0] y;
+	reg [9:0] vcnt, x;
+
+	dl_wr <= 0;
+	if(ioctl_wr) begin
+		dl_wr <= 1;
+		dl_addr <= ioctl_addr[24:1];
+		
+		if(~ioctl_addr[0]) begin
+			ioctl_dout_r <= ioctl_dout;
+			if(!dl_addr) begin
+				vcnt <= width[0]-1'd1;
+				x <= 0;
+				y <= wm[0] - height[0];
+				dl_addr <= wm[0] + 24'h100000;
+			end
+			else begin
+				y <= y - height[0];
+				dl_addr <= y + x + 24'h100000;
+				vcnt <= vcnt - 1'd1;
+				if(!vcnt) begin
+					vcnt <= width[0]-1'd1;
+					x <= x + 1'd1;
+					y <= wm[0] - height[0];
+					dl_addr <= wm[0] + x + 24'h100001;
+				end
+			end
+		end
+		else begin
+			dl_data <= {ioctl_dout, ioctl_dout_r};
+		end
+	end
+end
 
 wire [31:0] sd_data;
-wire ram_ready;
+wire        ram_ready;
+wire [24:0] sdram_addr = bg_download ? dl_addr : {status[20],pic_addr2[19:0]};
+
 sdram sdram
 (
 	.*,
 	
 	.init(~pll_locked),
 	.clk(clk_mem),
-	.ch1_addr(bg_download ? ioctl_addr[24:1] : {pic_addr[24:2],1'b0}),
+	.ch1_addr({sdram_addr[19:1],sdram_addr[20],sdram_addr[0]}),
 	.ch1_dout(sd_data),
-	.ch1_din({ioctl_dout, ioctl_dout_r}),
-	.ch1_req(bg_download ? (ioctl_wr & ioctl_addr[0]) : pic_req),
+	.ch1_din(dl_data),
+	.ch1_req(bg_download ? dl_wr : pic_req),
 	.ch1_rnw(~bg_download)
 );
 
@@ -470,6 +511,9 @@ alphablend alphablend(
 );
 
 wire VSync = VGA_VS;
+
+wire[23:0] pic_addr2 = {pic_addr[24:2],1'b0};
+
 reg [15:0] pic_data[2];
 reg        pic_req;
 reg [24:1] pic_addr;

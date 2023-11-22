@@ -143,8 +143,9 @@ port
 	color        : in  std_logic_vector(1 downto 0);
 	overburn     : in  std_logic;
 
-	video_width  : in  std_logic_vector(9 downto 0);
-	video_height : in  std_logic_vector(9 downto 0);
+	v_orient     : in  std_logic;
+	v_width      : in  std_logic_vector(9 downto 0);
+	v_height     : in  std_logic_vector(9 downto 0);
 
 	video_hblank : out std_logic;
 	video_vblank : out std_logic;
@@ -180,6 +181,12 @@ constant base_res      : integer := 5625;
 
 constant max_x         : integer := base_res*4*8;
 constant max_y         : integer := base_res*3*8;
+signal   m_x           : integer;
+signal   m_y           : integer;
+
+signal video_width     : std_logic_vector(9 downto 0);
+signal video_height    : std_logic_vector(9 downto 0);
+
 --------------------------------------------------------------
 
 signal clken_12        : std_logic;
@@ -240,6 +247,8 @@ signal shifted_y       : signed(19 downto 0);
 
 signal limited_x       : integer;
 signal limited_y       : integer;
+signal lim_x           : integer;
+signal lim_y           : integer;
 
 signal beam_h          : unsigned(9 downto 0);
 signal beam_v          : unsigned(9 downto 0);
@@ -414,6 +423,13 @@ beam_blank_n      <= via_cb2_o;      -- blank is not delayed
 
 dac <= signed(via_pa_o_d(7)&via_pa_o_d); -- must ensure sign extension for 0x80 value to be used in integrator equation
 
+m_x          <= (2*max_x) when v_orient = '0' else (2*max_y);
+m_y          <= (2*max_y) when v_orient = '0' else (2*max_x);
+video_width  <= v_width   when v_orient = '0' else v_height;
+video_height <= v_height  when v_orient = '0' else v_width;
+lim_x        <= limited_x when v_orient = '0' else (2*max_y) - limited_y;
+lim_y        <= limited_y when v_orient = '0' else limited_x;
+
 process (clock)
 	variable limit_n : std_logic;
 begin
@@ -457,8 +473,8 @@ begin
 
 			-- integer computation to try making rounding computation during division
 
-			beam_v <= to_unsigned((limited_x*to_integer(unsigned(video_height)))/(2*max_x),10);
-			beam_h <= to_unsigned((limited_y*to_integer(unsigned(video_width)))/(2*max_y),10);
+			beam_v <= to_unsigned((lim_x*to_integer(unsigned(video_height)))/(m_x),10);
+			beam_h <= to_unsigned((lim_y*to_integer(unsigned(video_width)))/(m_y),10);
 
 			beam_video_addr <= std_logic_vector(beam_v * unsigned(video_width) + beam_h);
 
@@ -582,11 +598,11 @@ port map( clk => not clock, we => video_we_3, addr => video_addr, d => write_3, 
 process (clock)
 begin
 	if rising_edge(clock) then
-
+	
 		hcnt <= hcnt + '1';
-		if hcnt = 553 then
+		if hcnt = video_width + 13 then
 			hcnt <= (others => '0');
-			if vcnt = 721 then
+			if vcnt = video_height + 1 then
 				vcnt <= (others => '0');
 			else
 				vcnt <= vcnt + '1';
