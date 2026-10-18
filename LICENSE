@@ -1,0 +1,23 @@
+Vectrex_MiSTer Licensing
+========================
+
+This repository contains components under multiple licenses. The notice in
+each source file is authoritative and is not replaced by this summary.
+
+The MiSTer integration and files marked with
+"SPDX-License-Identifier: GPL-2.0-or-later" are available under version 2 of
+the GNU General Public License or, at your option, any later version. See
+licenses/GPL-2.0.txt.
+
+JT49 and rtl/pause.v are available under GPL-3.0-or-later. rtl/via6522.vhd
+states GPL version 3. See their source headers and licenses/GPL-3.0.txt. The
+vendored JT49 tree also retains its own rtl/jt49/LICENSE file.
+
+Dar's Vectrex and SP0256 VHDL sources retain their original educational-use
+and redistribution notices. The MC6809 and other imported modules retain
+their own source notices and terms. Nothing in this repository-level summary
+relicenses those files.
+
+The bundled Vectorblade, Telengard and Neon Hawk demo ROMs and original game
+artwork retain their authors' rights and are included with permission. They are
+not covered by the FPGA source-code licenses.

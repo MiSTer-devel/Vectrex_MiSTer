@@ -1,6 +1,7 @@
 library ieee;
 use ieee.std_logic_1164.all,ieee.numeric_std.all;
 
+-- Vectrex Rev 3 BIOS/Mine Storm image (default).
 entity bios_rom is
 port (
 	clk  : in  std_logic;

@@ -1,0 +1,12 @@
+{
+  "name": "vectrex-artwork-tools",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Perceptual palette dependency for the Vectrex artwork tools",
+  "dependencies": {
+    "sharp": "0.35.4"
+  },
+  "engines": {
+    "node": ">=20.9.0"
+  }
+}

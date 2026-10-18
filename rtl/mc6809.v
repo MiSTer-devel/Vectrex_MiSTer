@@ -1,19 +1,17 @@
 `timescale 1ns / 1ps
+
+// Vectrex clock-phase wrapper for Greg Miller's synchronous MC6809 core.
+// Four-phase enable wrapper by Sorgelig.
 module mc6809
 (
 	input         CLK,
 	input         CLKEN,
 	input         nRESET,
 
-	input         CPU,
-
-	output reg    E,
 	output reg    riseE,
-	output reg    fallE, // everything except interrupts/dma registered/latched here
+	output reg    fallE, // Falling-E enable for CPU state and bus-cycle updates.
 
-	output reg    Q,
 	output reg    riseQ,
-	output reg    fallQ, // NMI,IRQ,FIRQ,DMA,HALT registered here
 
 	input   [7:0] Din,
 	output  [7:0] Dout,
@@ -21,55 +19,38 @@ module mc6809
 	output        RnW,
 
 	input         nIRQ,
-	input         nFIRQ,
-	input         nNMI,
-	input         nHALT
+	input         nFIRQ
 );
 
-cpu09 cpu1
-(
-	.clk(CLK),
-	.ce(fallE),
-	.rst(~nRESET | CPU),
-	.addr(ADDR1),
-	.rw(RnW1),
-	.data_out(Dout1),
-	.data_in(Din),
-	.irq(~nIRQ),
-	.firq(~nFIRQ),
-	.nmi(~nNMI),
-	.halt(~nHALT)
-);
+reg fallQ;
 
-mc6809is cpu2
+mc6809is cpu_core
 (
 	.CLK(CLK),
 	.D(Din),
-	.DOut(Dout2),
-	.ADDR(ADDR2),
-	.RnW(RnW2),
+	.DOut(Dout),
+	.ADDR(ADDR),
+	.RnW(RnW),
+	.BS(),
+	.BA(),
 	.fallE_en(fallE),
 	.fallQ_en(fallQ),
 	.nIRQ(nIRQ),
 	.nFIRQ(nFIRQ),
-	.nNMI(nNMI),
-	.nHALT(nHALT),
-	.nRESET(nRESET & CPU),
-	.nDMABREQ(1)
+	.nNMI(1'b1),
+	.nHALT(1'b1),
+	.nRESET(nRESET),
+	.nDMABREQ(1'b1),
+	// AVMA predicts a future bus cycle; board accesses use the E/Q phase pulses.
+	.AVMA(),
+	.BUSY(),
+	.LIC(),
+	.RegData()
 );
 
-wire  [7:0] Dout1,Dout2;
-wire [15:0] ADDR1,ADDR2;
-wire        RnW1,RnW2;
-
-assign Dout = CPU ? Dout2 : Dout1;
-assign ADDR = CPU ? ADDR2 : ADDR1;
-assign RnW  = CPU ? RnW2  : RnW1;
-
+reg [1:0] clk_phase = 2'd0;
 always @(posedge CLK)
 begin
-	reg [1:0] clk_phase =0;
-
 	fallE <= 0;
 	fallQ <= 0;
 	riseE <= 0;
@@ -78,10 +59,10 @@ begin
 	if (CLKEN) begin
 		clk_phase <= clk_phase + 1'd1;
 		case (clk_phase)
-			2'b00: begin E <= 0; fallE <= 1; end
-			2'b01: begin Q <= 1; riseQ <= 1; end
-			2'b10: begin E <= 1; riseE <= 1; end
-			2'b11: begin Q <= 0; fallQ <= 1; end
+			2'b00: fallE <= 1;
+			2'b01: riseQ <= 1;
+			2'b10: riseE <= 1;
+			2'b11: fallQ <= 1;
 		endcase
 	end
 end
