@@ -18,8 +18,8 @@
 -- VHDL code is by Dar.
 --
 ---------------------------------------------------------------------------------
--- Original sp0256 prom is bit compressed. I used sp0256.c from MAME to produce
--- an uncompressed and more easy format to be used in FPGA.
+-- The bit-compressed SP0256 PROM was expanded with MAME's sp0256.c
+-- for FPGA use.
 --
 -- Original prom is 2K, uncompressed prom is 4k.
 --

@@ -16,6 +16,7 @@
 -- See C source code and license in sp0256.c from MAME source
 --
 -- VHDL code is by Dar.
+-- Output saturation and idle-state handling corrected by Videodr0me (2026).
 --
 ---------------------------------------------------------------------------------
 --
@@ -84,17 +85,15 @@
 --
 --		(sum_out will be limited to -32768/+32767)
 --
---  Audio output scaling to 10bits unsigned:
+--  Audio scaling to signed 10-bit compressor input:
 --
---    what :
---      Last filter output is limited to -8192/+8191
---      Then divided by 16 => -512/+511
---      Then offset by 512 => 0/1023
+--    X is the last filter output; Y is the compressor input.
+--      if    X >  510*16, Y <= 511
+--      elsif X < -511*16, Y <= -512
+--      else               Y <= X(13 downto 4)
 --
---    how: 
---      if    X >  8191, Y <= 1023
---      elsif X < -8192, Y <= 0
---      else             Y <= (X/16)+512
+--    The slice divides by 16, rounding toward negative infinity.
+--    The compressor's signed 9-bit result is sign-extended to 10 bits.
 --
 ---------------------------------------------------------------------------------
 
@@ -132,9 +131,9 @@ architecture syn of sp0256 is
  signal line_amp_lsb, line_amp_msb   : std_logic_vector(7 downto 0);
  
  signal amp, filter, coeff : signed(15 downto 0); 
- signal sum_in2            : signed(31 downto 0);
- signal sum_in1,sum_out_ul : signed(15 downto 0);
- signal sum_out            : signed(15 downto 0);
+ signal sum_in2   : signed(31 downto 0);
+ signal sum_out_ext : signed(31 downto 0);
+ signal sum_in1, sum_out : signed(15 downto 0);
  signal divider            : std_logic;
  signal audio              : signed(9 downto 0);
  signal audio_int          : signed(8 downto 0);
@@ -209,7 +208,9 @@ process (clock, reset)
   begin
 	if reset='1' then
 		input_rdy_in <= '1';
-		sound_on  <= '0';
+		sound_on <= '0';
+		trig_allophone_r <= '0';
+		audio <= (others => '0');
 		noise_rng <= X"0001";
 	else
       if rising_edge(clock) then if ce = '1' then
@@ -413,7 +414,8 @@ port map
 	dout => audio_int
 );
 
-audio_out <= audio_int(8) & audio_int;
+audio_out <= (others => '0') when reset = '1' or sound_on = '0' else
+	         audio_int(8) & audio_int;
 
 -- filter computation
 coeff_idx <= rom_do(6 downto 0) when rom_do(7)='0' else
@@ -425,11 +427,11 @@ coeff <= -to_signed(coeff_array(to_integer(unsigned(coeff_idx))),16) when  rom_d
 sum_in2 <= (filter * coeff) / 256 when divider = '0' else 
            (filter * coeff) / 512 ;
 
-sum_out_ul <= sum_in1 + sum_in2(15 downto 0);
+sum_out_ext <= resize(sum_in1, sum_out_ext'length) + sum_in2;
 
-sum_out <= to_signed( 32767,16) when sum_out_ul >  32767 else
-			  to_signed(-32768,16) when sum_out_ul < -32768 else
-			  sum_out_ul;
+sum_out <= to_signed( 32767,16) when sum_out_ext >  32767 else
+			  to_signed(-32768,16) when sum_out_ext < -32768 else
+			  sum_out_ext(15 downto 0);
 			  
 
 -- sp0256-al2 prom (decoded)

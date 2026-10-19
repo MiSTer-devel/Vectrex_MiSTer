@@ -1,0 +1,71 @@
+// Color constants from tools/generate_flat_color.py.
+// SPDX-License-Identifier: GPL-2.0-or-later
+`default_nettype none
+package vfb_color_pkg;
+localparam logic [16:0] COLOR_ONE = 17'd65536;
+// Boost spill knee: F(820*1450/1024), where F is the calibrated P4
+// intensity-to-linear-luminance curve.
+// White after normalization (R=G=B=1) uses knee 65536 (1.0 in Q16).
+localparam logic [16:0] BOOST_KNEE = 17'd47041;
+// Channels [2:0] are R, G, B. Slopes are unsigned Q5.16;
+// knee, gain and ambient light are unsigned Q1.16 (65536 = 1).
+typedef struct packed {
+	logic [2:0][20:0] low, high;
+	logic [16:0] knee, gain;
+	logic [2:0][16:0] ambient;
+} color_coeff_t;
+// Optical depth is -log2(linear transmission), unsigned Q4.12.
+typedef struct packed {
+	logic [2:0][15:0] depth;
+	logic [16:0] luminance;
+} beam_color_t;
+function automatic beam_color_t overlay_beam(input logic [2:0] color);
+	case (color)
+		3'd0: overlay_beam = {16'd5287,16'd2777,16'd0,17'd39725};
+		3'd1: overlay_beam = {16'd9103,16'd4689,16'd0,17'd28914};
+		3'd2: overlay_beam = {16'd0,16'd0,16'd0,17'd65536};
+		3'd3: overlay_beam = {16'd0,16'd16384,16'd16384,17'd17158};
+		3'd4: overlay_beam = {16'd0,16'd16384,16'd0,17'd21594};
+		3'd5: overlay_beam = {16'd16384,16'd0,16'd0,17'd52474};
+		3'd6: overlay_beam = {16'd16384,16'd16384,16'd0,17'd8532};
+		3'd7: overlay_beam = {16'd5287,16'd2777,16'd0,17'd39725};
+	endcase
+endfunction
+function automatic logic [$bits(color_coeff_t)-1:0] bare_color(input logic floored, input logic [2:0] color, input logic boost);
+	case ({boost, floored, color})
+		5'd0: bare_color = 211'h02b28820ffa1a6560c02783ced0000009b2d80000000000000000;
+		5'd1: bare_color = 211'h01f14c20cd22443d0b3fb03ebc40000070f280000000000000000;
+		5'd2: bare_color = 211'h04000020000100000000000000000001000080000000000000000;
+		5'd3: bare_color = 211'h12d09000000000000000005147c28a3e366d80000000000000000;
+		5'd4: bare_color = 211'h0e0b8000000382e0000000597c40000048e980000000000000000;
+		5'd5: bare_color = 211'h00000028a3e1451f25a1200000000000c99380000000000000000;
+		5'd6: bare_color = 211'h00000000000dd9b5089f6044fb000000127c80000000000000000;
+		5'd7: bare_color = 211'h02b28820ffa1a6560c02783ced0000009b2d80000000000000000;
+		5'd8: bare_color = 211'h02b28820ffa1a6560c02783ced0000009b2d80000000000000000;
+		5'd9: bare_color = 211'h01f14c20cd22443d0b3fb03ebc40000070f280000000000000000;
+		5'd10: bare_color = 211'h04000020000100000000000000000001000080000000000000000;
+		5'd11: bare_color = 211'h0f473407a3a03d1d0000005147c28a3e430680000000000000000;
+		5'd12: bare_color = 211'h0c23bc0611e308ef000000597c400000545a80000000000000000;
+		5'd13: bare_color = 211'h004ff027f7413fba25a1200000000000ccfa80000000000000000;
+		5'd14: bare_color = 211'h01eb980f5cc7ae65089f6044fb000000215480000000000000000;
+		5'd15: bare_color = 211'h02b28820ffa1a6560c02783ced0000009b2d80000000000000000;
+		5'd16: bare_color = 211'h0247241bdde164a710c2a05506c00000b7c180000000000000000;
+		5'd17: bare_color = 211'h0131ac14296164a71646087c38800000b7c180000000000000000;
+		5'd18: bare_color = 211'h04000020000100000000000000000001000080000000000000000;
+		5'd19: bare_color = 211'h05929c0000000000000000e2c7c7163eb7c180000000000000000;
+		5'd20: bare_color = 211'h05929c00000164a7000000e2c7c00000b7c180000000000000000;
+		5'd21: bare_color = 211'h0000002c94e164a71c58f80000000000b7c180000000000000000;
+		5'd22: bare_color = 211'h00000000000164a71c58f8e2c7c00000b7c180000000000000000;
+		5'd23: bare_color = 211'h0247241bdde164a710c2a05506c00000b7c180000000000000000;
+		5'd24: bare_color = 211'h0247241bdde164a710c2a05506c00000b7c180000000000000000;
+		5'd25: bare_color = 211'h0131ac14296164a71646087c38800000b7c180000000000000000;
+		5'd26: bare_color = 211'h04000020000100000000000000000001000080000000000000000;
+		5'd27: bare_color = 211'h05929c02c940164a000000d49b46a4dab7c180000000000000000;
+		5'd28: bare_color = 211'h05929c02c94164a7000000d49b400000b7c180000000000000000;
+		5'd29: bare_color = 211'h0059282c94e164a71a93680000000000b7c180000000000000000;
+		5'd30: bare_color = 211'h00592802c94164a71a9368d49b400000b7c180000000000000000;
+		5'd31: bare_color = 211'h0247241bdde164a710c2a05506c00000b7c180000000000000000;
+	endcase
+endfunction
+endpackage
+`default_nettype wire

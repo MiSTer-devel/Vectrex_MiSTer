@@ -38,3 +38,28 @@ c5_pin_model_dump.txt
 *.cdf
 *_netlist
 *.stp
+
+# local reference checkouts (other cores, emulators, docs)
+refs/
+
+# Local simulation source and output
+/sim/
+__pycache__/
+captures/
+
+# Hardware-loop evidence and generated analysis (kept locally, summarized in docs)
+game_sweep_*
+tc_sweep_*
+hdmi_*
+wobble_baseline_*
+sim/build-analog/
+
+# Local artwork sources, experiments and release packaging rules
+/Artwork/
+
+# Local RTL generators and implementation notes
+/tools/
+
+# Optional host-side artwork tool dependencies
+/Overlay Tools/node_modules/
+/Overlay Tools/.venv/

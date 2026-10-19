@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="624" viewBox="0 0 1120 624" role="img" aria-labelledby="title desc">
+  <title id="title">1080p artwork framing: normal and Tate</title>
+  <desc id="desc">Both rasters are 1360 by 1080 pixels. Normal artwork occupies 846 by 1080 pixels with 257 clear pixels on each side. CW and CCW Tate artwork occupies 1360 by 1066 pixels with 7 clear pixels above and below.</desc>
+  <rect width="1120" height="624" rx="12" fill="#fff"/>
+  <g font-family="Arial, Helvetica, sans-serif" fill="#172b42">
+    <g font-size="27" font-weight="700">
+      <text x="40" y="43">1080p / Normal</text>
+      <text x="600" y="43">1080p / Tate (CW or CCW)</text>
+    </g>
+    <g font-size="22" fill="#475569">
+      <text x="40" y="77">1360 &#215; 1080 raster</text>
+      <text x="600" y="77">1360 &#215; 1080 raster</text>
+    </g>
+    <!-- Geometry uses one scale: 480 / 1360 display units per stored pixel. -->
+    <rect x="40" y="114" width="480" height="381.176471" fill="#e2e8f0"/>
+    <rect x="130.705882" y="114" width="298.588235" height="381.176471" fill="#d8effc"/>
+    <rect x="40" y="114" width="480" height="381.176471" fill="none" stroke="#475569" stroke-width="1.5"/>
+    <path d="M130.705882 114v381.176471 M429.294118 114v381.176471" fill="none" stroke="#2471a3" stroke-width="1.5"/>
+    <g text-anchor="middle">
+      <text x="280" y="293" font-size="25">Artwork</text>
+      <text x="280" y="333" font-size="31" font-weight="700">846 &#215; 1080</text>
+      <g font-size="20" fill="#475569">
+        <text x="85.352941" y="303">257</text>
+        <text x="85.352941" y="330">px</text>
+        <text x="474.647059" y="303">257</text>
+        <text x="474.647059" y="330">px</text>
+      </g>
+    </g>
+    <rect x="600" y="114" width="480" height="381.176471" fill="#e2e8f0"/>
+    <rect x="600" y="116.470588" width="480" height="376.235294" fill="#d8effc"/>
+    <rect x="600" y="114" width="480" height="381.176471" fill="none" stroke="#475569" stroke-width="1.5"/>
+    <path d="M600 116.470588h480 M600 492.705882h480" fill="none" stroke="#2471a3" stroke-width="1"/>
+    <g text-anchor="middle">
+      <text x="840" y="293" font-size="25">Rotated artwork</text>
+      <text x="840" y="333" font-size="31" font-weight="700">1360 &#215; 1066</text>
+    </g>
+    <g font-size="21">
+      <text x="40" y="531">257 + 846 + 257 = 1360 columns</text>
+      <text x="600" y="531">7 + 1066 + 7 = 1080 rows</text>
+    </g>
+    <g font-size="19" fill="#475569">
+      <text x="40" y="560">Artwork fills the raster height.</text>
+      <text x="600" y="560">7 px clear padding above and below.</text>
+    </g>
+    <rect x="40" y="590" width="18" height="18" fill="#d8effc" stroke="#2471a3"/>
+    <text x="68" y="605" font-size="18">Artwork region</text>
+    <rect x="267" y="590" width="18" height="18" fill="#e2e8f0" stroke="#475569"/>
+    <text x="295" y="605" font-size="18">Clear raster padding (alpha 0)</text>
+    <text x="1080" y="605" text-anchor="end" font-size="18" fill="#475569">Square pixels; drawn to scale.</text>
+  </g>
+</svg>

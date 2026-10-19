@@ -1,8 +1,16 @@
 //============================================================================
-//  Vectrex
+//  Vectrex for MiSTer
 //
-//  Port to MiSTer
+//  Original MiSTer port:
 //  Copyright (C) 2017-2019 Sorgelig
+//
+//  Enhanced core rebuild and subsequent modifications:
+//  Copyright (C) 2026 Videodr0me
+//  SPDX-License-Identifier: GPL-2.0-or-later
+//
+//  Based on Dar's original Vectrex FPGA implementation.
+//  Incorporates earlier Vectrex development by Alan Steremberg (alanswx).
+//  Extensively modified in 2026; see CHANGELOG.md for details.
 //
 //  This program is free software; you can redistribute it and/or modify it
 //  under the terms of the GNU General Public License as published by the Free
@@ -24,388 +32,619 @@ module emu
 	`include "sys/emu_ports.vh"
 );
 
+wire       ioctl_download;
+wire       rom_download;
+wire       direct_video;
+wire       vfb_ioctl_wait;
+wire       vfb_hblank, vfb_vblank, vfb_field;
+wire       video_is_15khz, video_supports_120hz;
+wire       vfb_video_mode_toggle, vfb_video_freeze;
+wire [1:0] vfb_profile_res;
+wire       fifo_full_led;
+wire       save_hold_reset, save_pending, save_available, save_error;
+logic [22:0] reset_timeout = 23'd0;
+
+// Default values for unused framework ports.
 assign ADC_BUS  = 'Z;
 assign USER_OUT = '1;
 assign {UART_RTS, UART_TXD, UART_DTR} = 0;
 assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
-assign {DDRAM_CLK, DDRAM_BURSTCNT, DDRAM_ADDR, DDRAM_DIN, DDRAM_BE, DDRAM_RD, DDRAM_WE} = 0;
 
-assign LED_USER  = ioctl_download;
-assign LED_DISK  = 0;
-assign LED_POWER = 0;
-assign BUTTONS   = 0;
-assign VGA_SCALER= 0;
-assign VGA_DISABLE = 0;
-assign HDMI_FREEZE = 0;
-assign HDMI_BLACKOUT = 0;
+
+assign LED_USER       = ioctl_download | fifo_full_led | save_pending | save_error;
+assign LED_DISK       = 0;
+assign LED_POWER      = 0;
+assign BUTTONS        = 0;
+assign VGA_SCALER     = 0;
+assign VGA_DISABLE    = 0;
+assign HDMI_BLACKOUT  = 0;
 assign HDMI_BOB_DEINT = 0;
 
-wire [1:0] ar = status[17:16];
-video_freak video_freak
-(
-	.*,
-	.VGA_DE_IN(VGA_DE),
-	.VGA_DE(),
-
-	.ARX((!ar) ? (status[20] ? 12'd11 : 12'd9 ) : (ar - 1'd1)),
-	.ARY((!ar) ? (status[20] ? 12'd9  : 12'd11) : 12'd0),
-	.CROP_SIZE(0),
-	.CROP_OFF(0),
-	.SCALE(status[19:18])
-);
-
-`include "build_id.v" 
+`include "build_id.v"
 localparam CONF_STR = {
 	"VECTREX;;",
 	"-;",
-	"f1,OVR;",
-	"F1,VECBINROM;",
-	"F2,OVR,Load Overlay;",
-	"OB,Skip logo,No,Yes;",
+	"f1,ART;",
+	"FS1,VECBINROM;",
+	"F2,ART,Load Overlay;",
 	"-;",
-	"OK,Orientation,Horz,Vert;",
-	"OGH,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
-	"OIJ,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
-	"O9,Frame,No,Yes;",
-	//"O4,Resolution,High,Low;", // AJS - remove this because it ruins the
-	//overlay
-	"O23,Phosphor persistance,1,2,3,4;",
-	"O56,Pseudocolor,Off,1,2,3;",
-	"O8,Overburn,No,Yes;",
+	// Fixed profiles and two independently saved custom profiles.
+	"H7P1,Video Profiles & Effects;",
+	"P1O[68:66],Profile,80s Cruise Control,80s Overdrive,Neon Blue,Red Alert,Ultraviolet,Custom 1,Custom 2,A Touch of CRT;",
+	"H9HAHBHCHDHEP1-;",
+	"H9HAHBHCHDHEP1-,Crisp vectors. Gentle glow.;",
+	"H9HAHBHCHDHEP1-,A conservatively adjusted;",
+	"H9HAHBHCHDHEP1-,Vectrex for those who keep;",
+	"H9HAHBHCHDHEP1-,the box and want the tube;",
+	"H9HAHBHCHDHEP1-,to last forever.;",
+	"H9HAHBHCHDHEP1-;",
+	"H9HAHBHCHDHEP1-,For advanced settings;",
+	"H9HAHBHCHDHEP1-,select Custom Profiles 1/2;",
+	"h9HAP1-;",
+	"h9HAP1-,The familiar Vectrex glow.;",
+	"h9HAP1-,Luminous lines and bright;",
+	"h9HAP1-,sparks against the dark.;",
+	"h9HAP1-,Full of character with;",
+	"h9HAP1-,the glow kept in balance.;",
+	"h9HAP1-;",
+	"h9HAP1-,For advanced settings;",
+	"h9HAP1-,select Custom Profiles 1/2;",
+	"hAH9P1-;",
+	"hAH9P1-,Hot vectors and fuller glow;",
+	"hAH9P1-,with trails that linger.;",
+	"hAH9P1-,Vectrex turned up a notch.;",
+	"hAH9P1-,A gentle phosphor shimmer;",
+	"hAH9P1-,gives it a livelier pulse.;",
+	"hAH9P1-;",
+	"hAH9P1-,For advanced settings;",
+	"hAH9P1-,select Custom Profiles 1/2;",
+	"h9hAP1-;",
+	"h9hAP1-,Electric blue neon blazes;",
+	"h9hAP1-,white at its brightest.;",
+	"h9hAP1-,A subdued blue halo hangs;",
+	"h9hAP1-,in the dark behind it.;",
+	"h9hAP1-;",
+	"h9hAP1-,Best without an overlay.;",
+	"h9hAP1-,Inspired by Neon Hawk.;",
+	"h9hAP1-;",
+	"h9hAP1-,For advanced settings;",
+	"h9hAP1-,select Custom Profiles 1/2;",
+	"hBP1-;",
+	"hBP1-,Red warning lights ablaze.;",
+	"hBP1-,Wild flicker. Fierce glow.;",
+	"hBP1-,Long restless trails.;",
+	"hBP1-,The CRT pushed past its;",
+	"hBP1-,limits. An arcade meltdown.;",
+	"hBP1-;",
+	"hBP1-,Best without an overlay.;",
+	"hBP1-;",
+	"hBP1-,     Epilepsy warning:;",
+	"hBP1-,    excessive flashing;",
+	"hCP1-;",
+	"hCP1-,Violet arcade fever dream.;",
+	"hCP1-,Boosted until the phosphor;",
+	"hCP1-,almost burns through.;",
+	"hCP1-,Neon haze and long trails.;",
+	"hCP1-,Spectacular explosions;",
+	"hCP1-,flood the screen.;",
+	"hCP1-;",
+	"hCP1-,Best without an overlay.;",
+	"hCP1-;",
+	"hCP1-,     Epilepsy warning:;",
+	"hCP1-,    excessive flashing;",
+	"hDP1O[54:52],> Dwell Low Size,1,2,3,4,5,6,7,8;",
+	"hDP1O[71:69],> Dwell Mid Growth,Same,+1,+2,+3,+4,+5,+6,+7;",
+	"hDP1O[6:4],> Dwell High Growth,Same,+1,+2,+3,+4,+5,+6,+7;",
+	"hDP1O[73:72],> Brightness,Reduced,Standard,Bright,Boost;",
+	"hDP1O[76:74],> Bloom Width,Off,Thin,Tight,Soft,Normal,Broad,Wide-,Wide;",
+	"hDH5P1O[79:77],> Bloom Curve,Minimal,Min+,Mild,Mild+,Moderate,Mod+,Strong-,Strong;",
+	"hDP1O[82:80],> Halo,Off,0.25x,0.33x,0.5x,0.75x,1.0x,1.25x,1.5x;",
+	"hDH6P1O[43:41],> Halo Curve,Minimal,Min+,Mild,Mild+,Moderate,Mod+,Strong-,Strong;",
+	"hDH6P1O[84:83],> Halo Spread,Original,Wide 1,Wide 2,Focus;",
+	"hDH6P1O[57:55],> Halo Compression,Off,2,4,6,8,10,16,24;",
+	"hDH6P1O[38],> Halo Grid,16x16,8x8;",
+	"hDP1O[86:85],> Inter-Frame Decay,Off,Short,Medium,Long;",
+	"hDP1O[88:87],> Intra-Frame Decay,Off,LUT A,LUT B,LUT C;",
+	"hDP1O[91:89],> Vector Color,Vectrex P4,Deluxe Blue,White,Red,Purple,Cyan,Blue;",
+	"hEP1O[126:124],> Dwell Low Size,1,2,3,4,5,6,7,8;",
+	"hEP1O[94:92],> Dwell Mid Growth,Same,+1,+2,+3,+4,+5,+6,+7;",
+	"hEP1O[15:13],> Dwell High Growth,Same,+1,+2,+3,+4,+5,+6,+7;",
+	"hEP1O[96:95],> Brightness,Reduced,Standard,Bright,Boost;",
+	"hEP1O[99:97],> Bloom Width,Off,Thin,Tight,Soft,Normal,Broad,Wide-,Wide;",
+	"hEH5P1O[102:100],> Bloom Curve,Minimal,Min+,Mild,Mild+,Moderate,Mod+,Strong-,Strong;",
+	"hEP1O[105:103],> Halo,Off,0.25x,0.33x,0.5x,0.75x,1.0x,1.25x,1.5x;",
+	"hEH6P1O[46:44],> Halo Curve,Minimal,Min+,Mild,Mild+,Moderate,Mod+,Strong-,Strong;",
+	"hEH6P1O[107:106],> Halo Spread,Original,Wide 1,Wide 2,Focus;",
+	"hEH6P1O[60:58],> Halo Compression,Off,2,4,6,8,10,16,24;",
+	"hEH6P1O[28],> Halo Grid,16x16,8x8;",
+	"hEP1O[109:108],> Inter-Frame Decay,Off,Short,Medium,Long;",
+	"hEP1O[111:110],> Intra-Frame Decay,Off,LUT A,LUT B,LUT C;",
+	"hEP1O[114:112],> Vector Color,Vectrex P4,Deluxe Blue,White,Red,Purple,Cyan,Blue;",
+	"P2,Video Overlay & Geometry;",
+	"P2-;",
+	"P2O[24],Overlay,On,Off;",
+	"h3P2O[10:8],Tint Strength,0,+1,+2,+3,+4,+5,+6,-1;",
+	"h3P2O[27:25],Translucent Blend,50%,60%,70%,80%,10%,20%,30%,40%;",
+	"h3P2O[34:32],Opaque Brightness,50%,60%,70%,80%,10%,20%,30%,40%;",
+	"P2-;",
+	"P2O[21:20],Orientation,Normal,90 CCW,90 CW;",
+	"P2O[30],Framing,Overlay,Screen;",
+	"P2O[31],View Area,Standard,Open Matte;",
+	"P2O[29],Offset,Compensated,Zero;",
+	"P2-;",
+	"d0D1P2O[122],120Hz (720p only),Off,On;",
+	"h0h1P2O[121],Direct Video Scan Rate,15 kHz,31 kHz;",
+	"h2P2O[120],15 kHz Format,480i,240p;",
+	"h1P2O[3:1],CRT Vertical Offset,0,+1,+2,+3,-1,-2,-3;",
 	"-;",
-	// overlay alpha is useful for debugging
-	"OD,Overlay Alpha,On,Off;",
-	// blend the vector with the overlay
-	"OE,Color Vector,Overlay On,White always;",
-	//  tint the vector towards white
-	"OF,Tint Vector White,On,Off;",
+	"P3,System;",
+	"P3-;",
+	"P3O[35],BIOS,Rev 3,Rev 1;",
+	"P3O[11],Quick Boot,Yes,No;",
+	"P3O[23:22],Beam Threshold,Z 20,Z 24,Z 28,Off;",
+	"P3O[12],Port 2,Joystick,VecVoice (SP0256);",
+	"d8P3O[19:18],Speech Level,Normal,Low,High;",
+	"hFP3O[118],Cartridge Autosave,On,Off;",
+	"hFP3R[119],Save Cartridge;",
+	"h4P3-,Cartridge save error;",
+	"P3-;",
+	"P3O[116],Pause when OSD open,Off,On;",
+	"P3O[117],Dim video after 60s,On,Off;",
+	"P4,Diagnostic;",
+	"P4-;",
+	"P4O[123],Effects Bypass,Off,On;",
+	"P4O[48:47],Reference Dwell,46,72,Standard,104;",
+	"P4O[50:49],Velocity Comp.,0.3,0.4,0.5,Off;",
+	"P4O[64:63],Halo Correction,None,50%,75%,100%;",
+	"P4-;",
+	"P4O[40:39],Buffer Mode,EOF + VBL,VBL,EOF;",
+	"P4O[17:16],Aspect Ratio,Optimized,Stretched,Pixel Perfect;",
 	"-;",
-	"OC,Port 2,Joystick,Speech;",
-	"OA,CPU Model,1,2;",
+	"P5,Core Info;",
+	"P5-;",
+	"P5-,Enhanced Vectrex core;",
+	"P5-,     by Videodr0me 2026;",
+	"P5-;",
+	"P5-,Based on Sorgelig's MiSTer;",
+	"P5-,port of Dar's original;",
+	"P5-,DE10-Lite core, with;",
+	"P5-,additional work by alanswx.;",
+	"P5-;",
+	"P5-,If you enjoy reliving the;",
+	"P5-,golden age of vector games,;",
+	"P5-,please support my work and;",
+	"P5-,future updates:;",
+	"P5-;",
+	"P5-,buymeacoffee.com/videodr0me;",
 	"-;",
 	"R7,Reset;",
-	"J1,Button 1,Button 2,Button 3,Button 4;",
-	"V,v",`BUILD_DATE
+	"J1,Button 1,Button 2,Button 3,Button 4,Pause,View;",
+	"jn,A,B,X,Y,Select,R;",
+	"I,",
+	"Overlay On / Framing: Overlay,",
+	"Overlay Off / Framing: Overlay,",
+	"Overlay Off / Framing: Screen,",
+	"Overlay Off / Open Matte,",
+	"Profile: 80s Cruise Control,",
+	"Profile: 80s Overdrive,",
+	"Profile: Neon Blue,",
+	"Profile: Red Alert,",
+	"Profile: Ultraviolet,",
+	"Profile: Custom 1,",
+	"Profile: Custom 2,",
+	"Profile: A Touch of CRT,",
+	"Copied to Custom 1,",
+	"Copied to Custom 2;",
+	// Keep version metadata after selectable entries; MiSTer counts it during action lookup.
+	"v,1;",
+	"V,v1.0.",`BUILD_DATE
 };
 
 ////////////////////   CLOCKS   ///////////////////
 
-wire clk_sys;
-wire clk_mem;
-wire clk_48;
-wire pll_locked;
+wire        clk_sys;
+wire        machine_pll_locked_raw;
+logic [1:0] machine_pll_lock_sync = 2'b00;
 
 pll pll
 (
-	.refclk(CLK_50M),
-	.rst(0),
+	.refclk  (CLK_50M),
+	.rst     (1'b0),
 	.outclk_0(clk_sys),
-	.outclk_1(clk_mem),
-	.outclk_2(clk_48),
-   .locked(pll_locked)
+	.locked  (machine_pll_locked_raw)
+);
+
+always_ff @(posedge clk_sys or negedge machine_pll_locked_raw) begin
+	if (!machine_pll_locked_raw) machine_pll_lock_sync <= 2'b00;
+	else machine_pll_lock_sync <= {machine_pll_lock_sync[0], 1'b1};
+end
+
+// videodr0me_fb runs at 125 MHz; see rtl/pll_vfb for why it needs its own PLL.
+wire clk_125;
+wire pll_vfb_locked;
+pll_vfb pll_vfb
+(
+	.refclk  (CLK_50M),
+	.rst     (1'b0),
+	.outclk_0(clk_125),
+	.locked  (pll_vfb_locked)
 );
 
 ///////////////////////////////////////////////////
 
-wire [31:0] status;
+wire [127:0] status;
+vfb_control_pkg::profile_settings_t profile_settings;
+vfb_control_pkg::diagnostic_settings_t diagnostic_settings;
+wire         profile_bypass;
+wire [15:0]  profile_menu_mask;
+wire [127:0] profile_status_in;
+wire         profile_status_set;
+wire         menu_info_req;
+wire [7:0]   menu_info;
+wire [10:0]  ps2_key;
+wire [15:0]  joystick_0, joystick_1;
+wire         artwork_valid_125;
+(* altera_attribute = {"-name SYNCHRONIZER_IDENTIFICATION FORCED_IF_ASYNCHRONOUS"} *)
+logic artwork_valid_meta = 1'b0, artwork_valid_sync = 1'b0;
+logic artwork_valid_seen = 1'b0;
+always_ff @(posedge clk_sys) begin
+	artwork_valid_meta <= artwork_valid_125;
+	artwork_valid_sync <= artwork_valid_meta;
+	if (!artwork_valid_sync)
+		artwork_valid_seen <= 1'b0;
+	else if (!RESET)
+		artwork_valid_seen <= 1'b1;
+end
+wire artwork_loaded = artwork_valid_sync && !artwork_valid_seen;
+// Touch is the only profile for which mask bits 14:9 are all clear.
+wire [15:0] status_menu_mask = {save_available, profile_menu_mask[14:9],
+	status[12], profile_menu_mask[7:5], save_error, profile_menu_mask[3:0]};
+
+vfb_profile_resolver profile_resolver (
+	.clk_sys             (clk_sys),
+	.reset               (RESET),
+	.status              (status),
+	.profile_resolution  (vfb_profile_res),
+	.video_freeze        (vfb_video_freeze),
+	.video_is_15khz      (video_is_15khz),
+	.video_supports_120hz(video_supports_120hz),
+	.direct_video        (direct_video),
+	.artwork_loaded      (artwork_loaded),
+	.artwork_present     (artwork_valid_sync),
+	.view_button         (joystick_0[9] | joystick_1[9]),
+	.osd_open            (OSD_STATUS),
+	.ps2_key             (ps2_key),
+
+	.profile_settings    (profile_settings),
+	.diagnostic_settings (diagnostic_settings),
+	.effects_bypass      (profile_bypass),
+	.menu_mask           (profile_menu_mask),
+	.status_in           (profile_status_in),
+	.status_set          (profile_status_set),
+	.info_req            (menu_info_req),
+	.info                (menu_info)
+);
 wire  [1:0] buttons;
-wire [15:0] sdram_sz;
 
-
-wire [15:0] joystick_0, joystick_1;
 wire [15:0] joya_0, joya_1;
-wire        ioctl_download;
 wire        ioctl_wr;
 wire [24:0] ioctl_addr;
-wire  [7:0] ioctl_dout;
+wire [7:0]  ioctl_dout;
 wire [15:0] ioctl_index;
+wire [32:0] timestamp;
+wire [17:0] backup_addr;
+wire [7:0]  backup_data, backup_q;
+wire        backup_wr, flash_enabled, flash_busy, flash_changed;
+wire [5:0]  flash_sector;
+wire [31:0] sd_lba;
+wire        sd_rd, sd_wr, sd_ack, sd_buff_wr;
+wire [13:0] sd_buff_addr;
+wire [7:0]  sd_buff_dout, sd_buff_din;
+wire        img_mounted, img_readonly;
+wire [63:0] img_size;
 
 hps_io #(.CONF_STR(CONF_STR)) hps_io
 (
-	.clk_sys(clk_sys),
-	.HPS_BUS(HPS_BUS),
+	.clk_sys            (clk_sys),
+	.HPS_BUS            (HPS_BUS),
 
-	.buttons(buttons),
-	.status(status),
+	.buttons            (buttons),
+	.status             (status),
+	.status_in          (profile_status_in),
+	.status_set         (profile_status_set),
+	.info_req           (menu_info_req),
+	.info               (menu_info),
+	.ps2_key            (ps2_key),
+	.status_menumask    (status_menu_mask),
+	.direct_video       (direct_video),
+	.new_vmode          (vfb_video_mode_toggle),
+	.TIMESTAMP          (timestamp),
+	.img_mounted        (img_mounted),
+	.img_readonly       (img_readonly),
+	.img_size           (img_size),
+	.sd_lba             ('{sd_lba}),
+	.sd_blk_cnt         ('{6'd0}),
+	.sd_rd              (sd_rd),
+	.sd_wr              (sd_wr),
+	.sd_ack             (sd_ack),
+	.sd_buff_addr       (sd_buff_addr),
+	.sd_buff_dout       (sd_buff_dout),
+	.sd_buff_din        ('{sd_buff_din}),
+	.sd_buff_wr         (sd_buff_wr),
 
-	.ioctl_download(ioctl_download),
-	.ioctl_wr(ioctl_wr),
-	.ioctl_addr(ioctl_addr),
-	.ioctl_dout(ioctl_dout),
-	.ioctl_index(ioctl_index),
-	.ioctl_wait(0),
-
-	.sdram_sz(sdram_sz),
+	.ioctl_download     (ioctl_download),
+	.ioctl_wr           (ioctl_wr),
+	.ioctl_addr         (ioctl_addr),
+	.ioctl_dout         (ioctl_dout),
+	.ioctl_index        (ioctl_index),
+	.ioctl_wait         (vfb_ioctl_wait),
 
 	.joystick_l_analog_0(joya_0),
 	.joystick_l_analog_1(joya_1),
-	.joystick_0(joystick_0),
-	.joystick_1(joystick_1)
+	.joystick_0         (joystick_0),
+	.joystick_1         (joystick_1)
 );
 
+vectrex_flash_save flash_save (
+	.clk          (clk_sys),
+	.download     (rom_download),
+	.download_wr  (ioctl_wr && rom_download),
+	.download_data(ioctl_dout),
+	.flash_enabled(flash_enabled),
+	.flash_busy   (flash_busy),
+	.flash_changed(flash_changed),
+	.flash_sector (flash_sector),
+	.cart_addr    (backup_addr),
+	.cart_data    (backup_data),
+	.cart_wr      (backup_wr),
+	.cart_q       (backup_q),
+	.autosave     (!status[118]),
+	.save_request (status[119]),
+	.hold_reset   (save_hold_reset),
+	.pending      (save_pending),
+	.available    (save_available),
+	.error        (save_error),
+	.img_mounted  (img_mounted),
+	.img_readonly (img_readonly),
+	.img_size     (img_size),
+	.sd_lba       (sd_lba),
+	.sd_rd        (sd_rd),
+	.sd_wr        (sd_wr),
+	.sd_ack       (sd_ack),
+	.sd_buff_addr (sd_buff_addr),
+	.sd_buff_dout (sd_buff_dout),
+	.sd_buff_wr   (sd_buff_wr),
+	.sd_buff_din  (sd_buff_din)
+);
+
+wire       pause_cpu;
 wire [9:0] audio;
-assign AUDIO_L = {audio, 6'd0};
-assign AUDIO_R = {audio, 6'd0};
-assign AUDIO_S = 1;
+assign AUDIO_L   = pause_cpu ? 16'd0 : {audio, 6'd0};
+assign AUDIO_R   = pause_cpu ? 16'd0 : {audio, 6'd0};
+assign AUDIO_S   = 1;
 assign AUDIO_MIX = 0;
 
-wire reset = (RESET | status[0] | status[7] | buttons[1] | ioctl_download | second_reset);
-
-reg second_reset = 0;
-always @(posedge clk_sys) begin
-	integer timeout = 0;
-
-	if(ioctl_download && status[11]) timeout <= 5000000;
-	else begin
-		if(!timeout) second_reset <= 0;
-		else begin
-			timeout <= timeout - 1;
-			if(timeout < 1000) second_reset <= 1;
-		end
+// Span two MC6809 fall-E reset samples without disturbing video state.
+logic       bios_factory_q = 1'b0;
+logic [5:0] bios_reset_cnt = 6'd0;
+always_ff @(posedge clk_sys) begin
+	if (bios_factory_q != status[35]) begin
+		bios_factory_q <= status[35];
+		bios_reset_cnt <= 6'd32;
 	end
+	else if (bios_reset_cnt != 0)
+		bios_reset_cnt <= bios_reset_cnt - 1'b1;
+end
+wire bios_reset = bios_reset_cnt != 0;
+
+// Cartridge loading and menu reset stop machine/source timing while the
+// current framebuffer continues presenting. Framework resets restart both.
+wire video_reset = !machine_pll_lock_sync[1] | RESET | status[0] | buttons[1];
+wire delayed_reset = (reset_timeout != 23'd0) &&
+	(reset_timeout <= 23'd999);
+wire machine_reset = video_reset | status[7] | rom_download | save_hold_reset | delayed_reset;
+wire core_reset = machine_reset | bios_reset;
+
+// A delayed warm reset preserves RAM state and skips the GCE startup animation.
+always_ff @(posedge clk_sys) begin
+	if ((rom_download || save_hold_reset) && !status[11])
+		reset_timeout <= 23'd5_000_001;
+	else if (reset_timeout != 23'd0)
+		reset_timeout <= reset_timeout - 1'b1;
 end
 
 
-wire hblank, vblank;
+assign VGA_SL      = 0;
+assign VGA_F1      = vfb_field;
+assign HDMI_FREEZE = vfb_video_freeze;
+assign VGA_DE      = ~(vfb_hblank | vfb_vblank);
 
-assign CLK_VIDEO = clk_sys;
-assign CE_PIXEL = 1;
-assign VGA_SL = 0;
-assign VGA_F1 = 0;
+wire        vfb_clk_video, vfb_ce_pixel;
+wire [7:0]  vfb_r, vfb_g, vfb_b;
+wire        vfb_hs, vfb_vs;
+wire [23:0] paused_rgb;
 
-assign VGA_HS = hblank;
-assign VGA_VS = vblank;
-assign VGA_DE = ~(hblank | vblank);
+pause #(.RW(8), .GW(8), .BW(8), .CLK_HZ(24_000_000)) pause_inst
+(
+	.clk_sys      (clk_sys),
+	.reset        (machine_reset),
+	.user_button  (joystick_0[8] | joystick_1[8]),
+	.pause_request(1'b0),
+	.options      ({~status[117], status[116]}),
+	.OSD_STATUS   (OSD_STATUS),
+	.r            (vfb_r),
+	.g            (vfb_g),
+	.b            (vfb_b),
+	.pause_cpu    (pause_cpu),
+	.rgb_out      (paused_rgb)
+);
 
-reg ce_pix;
-always @(posedge clk_48) ce_pix <= !ce_pix;
+assign CLK_VIDEO = vfb_clk_video;
+assign CE_PIXEL  = vfb_ce_pixel;
+assign VGA_R     = paused_rgb[23:16];
+assign VGA_G     = paused_rgb[15:8];
+assign VGA_B     = paused_rgb[7:0];
+assign VGA_HS    = vfb_hs;
+assign VGA_VS    = vfb_vs;
 
-wire [4:0]  pers[4]   = '{8,4,2,1};
-wire [9:0]  width[2]  = '{540, 332};
-wire [9:0]  height[2] = '{720, 410};
-wire [19:0] wm[2]     = '{539*720, 331*410};
-
-wire frame_line;
-wire [7:0] r,g,b;
-
-assign VGA_R = status[9] & frame_line ? 8'h40 : new_r;
-assign VGA_G = status[9] & frame_line ? 8'h00 : new_g;
-assign VGA_B = status[9] & frame_line ? 8'h00 : new_b;
-//assign VGA_R = bg_r;
-wire fg = |{r,g,b};
-wire bg = |{bg_r,bg_g,bg_b};
-
-//
-// if fg is non zero, then the beam is at this pixel
-//    make the color either:
-//       -- the background color (no alpha) if pixel is dark
-//       -- the background color tinted towards white if the beam is bright
-// if fg is zero, we use the background after an alpha * black has been applied
-
-wire [7:0] new_r = fg  ? bbrw : ~status[13] ? bga_r : {bg_r,bg_r};
-wire [7:0] new_g = fg  ? bbgw : ~status[13] ? bga_g : {bg_g,bg_g};
-wire [7:0] new_b = fg  ? bbbw : ~status[13] ? bga_b : {bg_b,bg_b};
-
-wire [7:0] bbrw = ~status[15] ? blend_r_w : blend_r;
-wire [7:0] bbgw = ~status[15] ? blend_g_w : blend_g;
-wire [7:0] bbbw = ~status[15] ? blend_b_w : blend_b;
+// Beam state exported by the machine core to the external renderer.
+wire signed [19:0] beam_x, beam_y;
+wire [7:0]         beam_z;
+wire               beam_on, beam_ce, beam_zero_n;
+wire               t2_reload;
+wire [15:0]        t2_period;
 
 
-// tint it towards white when it is brighter, otherwise use the background
-// color (no alpha)
-// r + (255-r)*tint
-// to simplify we want tint ~ 3/4 =  ( 1/4 + 1/2 )
-wire [7:0] blend_r_w = r > 108 ? (blend_r + ((8'd255-blend_r)>>1) + ((8'd255-blend_r)>>2) ) : blend_r;
-wire [7:0] blend_g_w = r > 108 ? (blend_g + ((8'd255-blend_g)>>1) + ((8'd255-blend_g)>>2) ) : blend_g;
-wire [7:0] blend_b_w = r > 108 ? (blend_b + ((8'd255-blend_b)>>1) + ((8'd255-blend_b)>>2) ) : blend_b;
-
-
-wire [7:0] blend_r = ~status[14] ? bg ? { bg_r << 2 | bg_r[0] , bg_r << 2 | bg_r[0]} : r : r;
-wire [7:0] blend_g = ~status[14] ? bg ? { bg_g << 2 | bg_g[0] , bg_g << 2 | bg_g[0]} : g : g;
-wire [7:0] blend_b = ~status[14] ? bg ? { bg_b << 2 | bg_b[0] , bg_b << 2 | bg_b[0]} : b : b;
-
-
-wire rom_download = ioctl_download && (ioctl_index[4:0] <= 1) && (ioctl_index[9:8] == 0);
-wire bg_download  = ioctl_download && ((ioctl_index[4:0] == 2) || (ioctl_index[9:8] == 1));
-
-reg [14:0] addr_mask;
-always @(posedge clk_sys) begin
-	reg old_download;
-	
-	old_download <= rom_download;
-	if(~old_download & rom_download) addr_mask <= 0;
-	if(rom_download && ioctl_wr && (ioctl_addr[14:0] & ~addr_mask)) addr_mask <= ((addr_mask<<1)|15'd1);
-end
+// boot2.rom contains artwork; boot.rom remains the startup cartridge.
+assign rom_download = ioctl_download && (ioctl_index[4:0] <= 1) &&
+	(ioctl_index[9:8] == 0) && (ioctl_index != 16'h0080);
 
 vectrex vectrex
 (
-	.reset(reset),
-	.clock(clk_sys),
-	.cpu(status[10]),
+	.reset        (core_reset),
+	.pause        (pause_cpu && !bios_reset),
+	.clock        (clk_sys),
+	.bios_factory (bios_factory_q),
+	.boot_reset   (status[0]),
+	.timestamp    (timestamp),
 
-	.cart_data(ioctl_dout),
-	.cart_addr(ioctl_addr),
-	.cart_mask(addr_mask),
-	.cart_wr(ioctl_wr & ioctl_download & rom_download ),
-	
-	.video_r(r),
-	.video_g(g),
-	.video_b(b),
+	.cart_download(rom_download),
+	.cart_data    (ioctl_dout),
+	.cart_addr    (ioctl_addr),
+	.cart_wr      (ioctl_wr && rom_download),
+	.backup_addr  (backup_addr),
+	.backup_data  (backup_data),
+	.backup_wr    (backup_wr),
+	.backup_q     (backup_q),
+	.flash_enabled(flash_enabled),
+	.flash_busy   (flash_busy),
+	.flash_changed(flash_changed),
+	.flash_sector (flash_sector),
 
-	.video_hblank(hblank),
-	.video_vblank(vblank),
+	.speech_mode  (status[12]),
+	.speech_level (status[19:18]),
+	.audio_out    (audio),
 
-	.v_orient(status[20]),
-	.v_width(width[0]), //status[4]]),
-	.v_height(height[0]), //status[4]]),
+	.up_1         (joystick_0[4]),
+	.dn_1         (joystick_0[5]),
+	.lf_1         (joystick_0[6]),
+	.rt_1         (joystick_0[7]),
+	.pot_x_1      (joya_0[7:0]  ? joya_0[7:0]   : {joystick_0[1], {7{joystick_0[0]}}}),
+	.pot_y_1      (joya_0[15:8] ? ~joya_0[15:8] : {joystick_0[2], {7{joystick_0[3]}}}),
 
-	.color(status[6:5]),
-	.pers(pers[status[3:2]]),
-	.overburn(status[8]),
-	.frame_line(frame_line),
+	.up_2         (joystick_1[4]),
+	.dn_2         (joystick_1[5]),
+	.lf_2         (joystick_1[6]),
+	.rt_2         (joystick_1[7]),
+	.pot_x_2      (joya_1[7:0]  ? joya_1[7:0]   : {joystick_1[1], {7{joystick_1[0]}}}),
+	.pot_y_2      (joya_1[15:8] ? ~joya_1[15:8] : {joystick_1[2], {7{joystick_1[3]}}}),
 
-	.speech_mode(status[12]),
-	.audio_out(audio),
-
-	.up_1(joystick_0[4]),
-	.dn_1(joystick_0[5]),
-	.lf_1(joystick_0[6]),
-	.rt_1(joystick_0[7]),
-	.pot_x_1(joya_0[7:0]  ? joya_0[7:0]   : {joystick_0[1], {7{joystick_0[0]}}}),
-	.pot_y_1(joya_0[15:8] ? ~joya_0[15:8] : {joystick_0[2], {7{joystick_0[3]}}}),
-
-	.up_2(joystick_1[4]),
-	.dn_2(joystick_1[5]),
-	.lf_2(joystick_1[6]),
-	.rt_2(joystick_1[7]),
-	.pot_x_2(joya_1[7:0]  ? joya_1[7:0]   : {joystick_1[1], {7{joystick_1[0]}}}),
-	.pot_y_2(joya_1[15:8] ? ~joya_1[15:8] : {joystick_1[2], {7{joystick_1[3]}}})
+	.beam_x       (beam_x),
+	.beam_y       (beam_y),
+	.beam_on      (beam_on),
+	.beam_z       (beam_z),
+	.beam_ce      (beam_ce),
+	.beam_zero_n  (beam_zero_n),
+	.t2_reload    (t2_reload),
+	.t2_period    (t2_period)
 );
 
-//
-// Load 16bit color data from the ioctl as a file load
-//
-// the format is RBGA with each channel taking 4 bits
-//
 
-reg        dl_wr;
-reg [15:0] dl_data;
-reg [23:0] dl_addr;
-always @(posedge clk_sys) begin
-	reg [7:0] ioctl_dout_r;
-	reg [19:0] y;
-	reg [9:0] vcnt, x;
-
-	dl_wr <= 0;
-	if(ioctl_wr) begin
-		dl_wr <= 1;
-		dl_addr <= ioctl_addr[24:1];
-		
-		if(~ioctl_addr[0]) begin
-			ioctl_dout_r <= ioctl_dout;
-			if(!dl_addr) begin
-				vcnt <= width[0]-1'd1;
-				x <= 0;
-				y <= wm[0] - height[0];
-				dl_addr <= wm[0] + 24'h100000;
-			end
-			else begin
-				y <= y - height[0];
-				dl_addr <= y + x + 24'h100000;
-				vcnt <= vcnt - 1'd1;
-				if(!vcnt) begin
-					vcnt <= width[0]-1'd1;
-					x <= x + 1'd1;
-					y <= wm[0] - height[0];
-					dl_addr <= wm[0] + x + 24'h100001;
-				end
-			end
-		end
-		else begin
-			dl_data <= {ioctl_dout, ioctl_dout_r};
-		end
-	end
-end
-
-wire [31:0] sd_data;
-wire        ram_ready;
-wire [24:0] sdram_addr = bg_download ? dl_addr : {status[20],pic_addr2[19:0]};
-
-sdram sdram
+// ---------------------------------------------------------------------------
+// vectrex_video maps the emulated beam into the selected raster and feeds the
+// external framebuffer and CRT-effects pipeline.
+// ---------------------------------------------------------------------------
+vectrex_video vectrex_video
 (
-	.*,
-	
-	.init(~pll_locked),
-	.clk(clk_mem),
-	.ch1_addr({sdram_addr[19:1],sdram_addr[20],sdram_addr[0]}),
-	.ch1_dout(sd_data),
-	.ch1_din(dl_data),
-	.ch1_req(bg_download ? dl_wr : pic_req),
-	.ch1_rnw(~bg_download)
+	.clk_sys            (clk_sys),
+	.clk_50             (CLK_50M),
+	.clk_125            (clk_125),
+	.reset              (video_reset),
+	.vfb_clock_reset    (!pll_vfb_locked),
+	.reset_source       (machine_reset),
+
+	.beam_x             (beam_x),
+	.beam_y             (beam_y),
+	.beam_z             (beam_z),
+	.beam_on            (beam_on),
+	.beam_tick          (beam_ce),
+	.beam_zero_n        (beam_zero_n),
+	.t2_reload          (t2_reload),
+	.t2_period          (t2_period),
+
+	.hdmi_height        (HDMI_HEIGHT),
+	.direct_video       (direct_video),
+	.direct_video_31khz (status[121]),
+	.crt_15khz_480i     (!status[120]),
+	.crt_vertical_position (status[3:1]),
+	.mode_120hz         (status[122]),
+	.aspect_ratio       (status[17:16]),
+
+	.v_orient           (status[21:20]),
+	.open_matte         (status[31]),
+	.zoom_normal        (status[30]),
+	.vertical_offset    (!status[29]),
+	.beam_threshold     (status[23:22]),
+
+	.overlay_off        (status[24]),
+	.ovl_tint           (status[10:8]),
+	.ovl_bright         (status[27:25]),
+	.ovl_opaque_bright  (status[34:32]),
+	.profile_settings   (profile_settings),
+	.diagnostic_settings(diagnostic_settings),
+	.effects_bypass     (profile_bypass),
+	.ioctl_download     (ioctl_download),
+	.ioctl_wr           (ioctl_wr),
+	.ioctl_index        (ioctl_index),
+	.ioctl_addr         (ioctl_addr),
+	.ioctl_data         (ioctl_dout),
+	.ioctl_wait         (vfb_ioctl_wait),
+	.artwork_valid      (artwork_valid_125),
+	// Mode 0 promotes completed redraws at VBLANK. Accepted Timer 2 reloads
+	// define normal boundaries; the armed fallback uses ZERO or timeout.
+	.buffer_mode        (status[40:39]),
+	.clk_video          (vfb_clk_video),
+	.ce_pixel           (vfb_ce_pixel),
+	.vga_r              (vfb_r),
+	.vga_g              (vfb_g),
+	.vga_b              (vfb_b),
+	.vga_hs             (vfb_hs),
+	.vga_vs             (vfb_vs),
+	.vga_hblank         (vfb_hblank),
+	.vga_vblank         (vfb_vblank),
+	.field              (vfb_field),
+	.video_arx          (VIDEO_ARX),
+	.video_ary          (VIDEO_ARY),
+	.mode_is_15khz      (video_is_15khz),
+	.mode_supports_120hz(video_supports_120hz),
+	.profile_resolution (vfb_profile_res),
+	.video_mode_toggle  (vfb_video_mode_toggle),
+	.video_freeze       (vfb_video_freeze),
+
+	.ddram_clk          (DDRAM_CLK),
+	.ddram_busy         (DDRAM_BUSY),
+	.ddram_burstcnt     (DDRAM_BURSTCNT),
+	.ddram_addr         (DDRAM_ADDR),
+	.ddram_dout         (DDRAM_DOUT),
+	.ddram_dout_ready   (DDRAM_DOUT_READY),
+	.ddram_rd           (DDRAM_RD),
+	.ddram_din          (DDRAM_DIN),
+	.ddram_be           (DDRAM_BE),
+	.ddram_we           (DDRAM_WE),
+
+	.sdram_dq           (SDRAM_DQ),
+	.sdram_clk          (SDRAM_CLK),
+	.sdram_cke          (SDRAM_CKE),
+	.sdram_ncs          (SDRAM_nCS),
+	.sdram_nras         (SDRAM_nRAS),
+	.sdram_ncas         (SDRAM_nCAS),
+	.sdram_nwe          (SDRAM_nWE),
+	.sdram_dqml         (SDRAM_DQML),
+	.sdram_dqmh         (SDRAM_DQMH),
+	.sdram_a            (SDRAM_A),
+	.sdram_ba           (SDRAM_BA),
+
+	.fifo_full_led      (fifo_full_led)
 );
-
-//
-// Alpha Blend is a table lookup to mix the color with black
-//
-// we can't hardcode it, because when the light comes through
-// the overlay we need the original color
-//
-wire [7:0] bga_r,bga_g,bga_b;
-alphablend alphablend(
-	.clk(clk_48),
-	.bg_a(bg_a),
-	.bg_r(bg_r),
-	.bg_g(bg_g),
-	.bg_b(bg_b),
-	.bga_r(bga_r),
-	.bga_g(bga_g),
-	.bga_b(bga_b)
-);
-
-wire VSync = VGA_VS;
-
-wire[23:0] pic_addr2 = {pic_addr[24:2],1'b0};
-
-reg [15:0] pic_data[2];
-reg        pic_req;
-reg [24:1] pic_addr;
-reg  [3:0] bg_r,bg_g,bg_b,bg_a;
-always @(posedge clk_48) begin
-	reg old_vs;
-	reg use_bg = 0;
-	reg [1:0] cnt;
-	
-	if(rom_download) use_bg <= 0;
-	if(bg_download && sdram_sz[2:0]) use_bg <= 1;
-
-	pic_req <= 0;
-
-	if(use_bg & ~bg_download) begin
-		if(ce_pix) begin
-			
-			cnt <= cnt >> 1;
-			if(cnt[0]) {pic_data[1],pic_data[0]} <= sd_data;
-			
-			old_vs <= VSync;
-			if(~(hblank|vblank)) begin
-				{bg_a,bg_b,bg_g,bg_r} <= pic_data[~pic_addr[1]];
-				pic_addr <= pic_addr + 2'd1;
-				if(pic_addr[1]) begin
-					pic_req <= 1;
-					cnt <= 2;
-				end
-			end
-			
-			if(~old_vs & VSync) begin
-				pic_addr <= 0;
-				pic_req <= 1;
-				cnt <= 2;
-			end
-		end
-	end
-	else begin
-		{bg_a,bg_b,bg_g,bg_r} <= 0;
-	end
-end
 
 endmodule
