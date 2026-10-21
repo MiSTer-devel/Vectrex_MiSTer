@@ -61,6 +61,10 @@ assign HDMI_BLACKOUT  = 0;
 assign HDMI_BOB_DEINT = 0;
 
 `include "build_id.v"
+// PiTrex mode build number: shown in Core Info and reported in the ring's
+// status block. Bump both together for every build that goes on a MiSTer.
+localparam [7:0] PTX_BUILD = 8'd5;
+
 localparam CONF_STR = {
 	"VECTREX;;",
 	"-;",
@@ -183,6 +187,7 @@ localparam CONF_STR = {
 	"P3O[11],Quick Boot,Yes,No;",
 	"P3O[23:22],Beam Threshold,Z 20,Z 24,Z 28,Off;",
 	"P3O[12],Port 2,Joystick,VecVoice (SP0256);",
+	"P3O[36],PiTrex Mode,Off,On;",
 	"d8P3O[19:18],Speech Level,Normal,Low,High;",
 	"hFP3O[118],Cartridge Autosave,On,Off;",
 	"hFP3R[119],Save Cartridge;",
@@ -209,6 +214,8 @@ localparam CONF_STR = {
 	"P5-,port of Dar's original;",
 	"P5-,DE10-Lite core, with;",
 	"P5-,additional work by alanswx.;",
+	"P5-;",
+	"P5-,PiTrex mode: build B5;",
 	"P5-;",
 	"P5-,If you enjoy reliving the;",
 	"P5-,golden age of vector games,;",
@@ -442,7 +449,22 @@ wire bios_reset = bios_reset_cnt != 0;
 wire video_reset = !machine_pll_lock_sync[1] | RESET | status[0] | buttons[1];
 wire delayed_reset = (reset_timeout != 23'd0) &&
 	(reset_timeout <= 23'd999);
-wire machine_reset = video_reset | status[7] | rom_download | save_hold_reset | delayed_reset;
+// PiTrex mode: a short machine reset on every mode change (clean VIA state on
+// entry; a normal BIOS boot on exit).
+// PiTrex takes over only while the option is on AND a live ARM program
+// is detected (coded heartbeat); assigned in the PiTrex block below.
+wire      ptx_active;
+reg       ptx_mode_q = 1'b0;
+reg [4:0] ptx_mode_reset_cnt = 5'd0;
+always_ff @(posedge clk_sys) begin
+	ptx_mode_q <= ptx_active;
+	if (ptx_mode_q != ptx_active)
+		ptx_mode_reset_cnt <= 5'd31;
+	else if (ptx_mode_reset_cnt != 5'd0)
+		ptx_mode_reset_cnt <= ptx_mode_reset_cnt - 1'd1;
+end
+wire ptx_mode_reset = ptx_mode_reset_cnt != 5'd0;
+wire machine_reset = video_reset | status[7] | rom_download | save_hold_reset | delayed_reset | ptx_mode_reset;
 wire core_reset = machine_reset | bios_reset;
 
 // A delayed warm reset preserves RAM state and skips the GCE startup animation.
@@ -499,10 +521,127 @@ wire [15:0]        t2_period;
 assign rom_download = ioctl_download && (ioctl_index[4:0] <= 1) &&
 	(ioctl_index[9:8] == 0) && (ioctl_index != 16'h0080);
 
+// ---------------------------------------------------------------------------
+// PiTrex mode: the ARM streams timestamped VIA writes through a DDR ring
+// (pitrex_ddr, clk_125, on the framebuffer's DDR arbiter) and a cross-clock
+// FIFO into pitrex_player (clk_sys), which drives the machine bus while the
+// 6809 is held in reset. Stream format: PiTrex-on-MiSTer PROTOCOL.md.
+// ---------------------------------------------------------------------------
+wire        ptx_enable = status[36];      // option on: listen for a program
+wire        ptx_present_125;
+(* altera_attribute = {"-name SYNCHRONIZER_IDENTIFICATION FORCED_IF_ASYNCHRONOUS"} *)
+reg [1:0]   ptx_present_sys = 2'b00;
+always_ff @(posedge clk_sys) ptx_present_sys <= {ptx_present_sys[0], ptx_present_125};
+assign      ptx_active = ptx_enable && ptx_present_sys[1];
+wire signed [7:0] pot_x1 = joya_0[7:0]  ? joya_0[7:0]   : {joystick_0[1], {7{joystick_0[0]}}};
+wire signed [7:0] pot_y1 = joya_0[15:8] ? ~joya_0[15:8] : {joystick_0[2], {7{joystick_0[3]}}};
+wire signed [7:0] pot_x2 = joya_1[7:0]  ? joya_1[7:0]   : {joystick_1[1], {7{joystick_1[0]}}};
+wire signed [7:0] pot_y2 = joya_1[15:8] ? ~joya_1[15:8] : {joystick_1[2], {7{joystick_1[3]}}};
+
+wire [15:0] ptx_addr;
+wire [7:0]  ptx_do;
+wire        ptx_rw;
+wire        ptx_stall;
+wire        vec_e_fall;
+wire [7:0]  vec_psg_ioa;
+
+wire        ptx_fifo_rd_en, ptx_fifo_rd_valid, ptx_fifo_rd_empty;
+wire [63:0] ptx_fifo_rd_data;
+wire        ptx_fifo_wr_en, ptx_fifo_almost_full;
+wire [63:0] ptx_fifo_wr_data;
+
+wire [47:0] ptx_snap_cycles;
+wire [15:0] ptx_snap_frames, ptx_snap_underruns;
+wire [31:0] ptx_snap_pots;
+wire [7:0]  ptx_snap_ioa;
+wire        ptx_snap_toggle;
+
+pitrex_player pitrex_player
+(
+	.clk            (clk_sys),
+	.enable         (ptx_active),
+	.e_fall         (vec_e_fall),
+	.fifo_rd_en     (ptx_fifo_rd_en),
+	.fifo_rd_data   (ptx_fifo_rd_data),
+	.fifo_rd_valid  (ptx_fifo_rd_valid),
+	.fifo_rd_empty  (ptx_fifo_rd_empty),
+	.bus_addr       (ptx_addr),
+	.bus_do         (ptx_do),
+	.bus_rw         (ptx_rw),
+	.stall          (ptx_stall),
+	.pots           ({pot_y2, pot_x2, pot_y1, pot_x1}),
+	.psg_ioa        (vec_psg_ioa),
+	.snap_cycles    (ptx_snap_cycles),
+	.snap_frames    (ptx_snap_frames),
+	.snap_underruns (ptx_snap_underruns),
+	.snap_pots      (ptx_snap_pots),
+	.snap_ioa       (ptx_snap_ioa),
+	.snap_toggle    (ptx_snap_toggle)
+);
+
+(* altera_attribute = {"-name SYNCHRONIZER_IDENTIFICATION FORCED_IF_ASYNCHRONOUS"} *)
+reg [1:0] ptx_enable_125 = 2'b00;
+always_ff @(posedge clk_125) ptx_enable_125 <= {ptx_enable_125[0], ptx_enable};
+
+vfb_async_fifo #(.WIDTH(64), .DEPTH(128), .ALMOST_FULL_MARGIN(40)) pitrex_fifo
+(
+	.wr_clk         (clk_125),
+	.wr_reset       (!(ptx_enable_125[1] && ptx_present_125)),
+	.wr_en          (ptx_fifo_wr_en),
+	.wr_data        (ptx_fifo_wr_data),
+	.wr_full        (),
+	.wr_almost_full (ptx_fifo_almost_full),
+	.rd_clk         (clk_sys),
+	.rd_reset       (!ptx_active),
+	.rd_en          (ptx_fifo_rd_en),
+	.rd_data        (ptx_fifo_rd_data),
+	.rd_valid       (ptx_fifo_rd_valid),
+	.rd_empty       (ptx_fifo_rd_empty)
+);
+
+wire        ptx_read_ready, ptx_read_grant, ptx_read_data_valid;
+wire [28:0] ptx_read_addr;
+wire [7:0]  ptx_read_burstcnt;
+wire [63:0] ptx_read_data;
+wire        ptx_write_ready, ptx_write_grant, ptx_write_done, ptx_write_advance;
+wire [28:0] ptx_write_addr;
+wire [7:0]  ptx_write_burstcnt, ptx_write_be;
+wire [63:0] ptx_write_data;
+
+pitrex_ddr #(.BUILD(PTX_BUILD)) pitrex_ddr
+(
+	.clk              (clk_125),
+	.enable           (ptx_enable_125[1]),
+	.present          (ptx_present_125),
+	.rd_ready         (ptx_read_ready),
+	.rd_grant         (ptx_read_grant),
+	.rd_addr          (ptx_read_addr),
+	.rd_burstcnt      (ptx_read_burstcnt),
+	.rd_data          (ptx_read_data),
+	.rd_data_valid    (ptx_read_data_valid),
+	.wr_ready         (ptx_write_ready),
+	.wr_grant         (ptx_write_grant),
+	.wr_done          (ptx_write_done),
+	.wr_addr          (ptx_write_addr),
+	.wr_burstcnt      (ptx_write_burstcnt),
+	.wr_data          (ptx_write_data),
+	.wr_be            (ptx_write_be),
+	.wr_advance       (ptx_write_advance),
+	.fifo_wr_en       (ptx_fifo_wr_en),
+	.fifo_wr_data     (ptx_fifo_wr_data),
+	.fifo_almost_full (ptx_fifo_almost_full),
+	.snap_cycles      (ptx_snap_cycles),
+	.snap_frames      (ptx_snap_frames),
+	.snap_underruns   (ptx_snap_underruns),
+	.snap_pots        (ptx_snap_pots),
+	.snap_ioa         (ptx_snap_ioa),
+	.snap_toggle      (ptx_snap_toggle)
+);
+
 vectrex vectrex
 (
 	.reset        (core_reset),
-	.pause        (pause_cpu && !bios_reset),
+	.pause        ((pause_cpu && !bios_reset) || ptx_stall),
 	.clock        (clk_sys),
 	.bios_factory (bios_factory_q),
 	.boot_reset   (status[0]),
@@ -529,15 +668,15 @@ vectrex vectrex
 	.dn_1         (joystick_0[5]),
 	.lf_1         (joystick_0[6]),
 	.rt_1         (joystick_0[7]),
-	.pot_x_1      (joya_0[7:0]  ? joya_0[7:0]   : {joystick_0[1], {7{joystick_0[0]}}}),
-	.pot_y_1      (joya_0[15:8] ? ~joya_0[15:8] : {joystick_0[2], {7{joystick_0[3]}}}),
+	.pot_x_1      (pot_x1),
+	.pot_y_1      (pot_y1),
 
 	.up_2         (joystick_1[4]),
 	.dn_2         (joystick_1[5]),
 	.lf_2         (joystick_1[6]),
 	.rt_2         (joystick_1[7]),
-	.pot_x_2      (joya_1[7:0]  ? joya_1[7:0]   : {joystick_1[1], {7{joystick_1[0]}}}),
-	.pot_y_2      (joya_1[15:8] ? ~joya_1[15:8] : {joystick_1[2], {7{joystick_1[3]}}}),
+	.pot_x_2      (pot_x2),
+	.pot_y_2      (pot_y2),
 
 	.beam_x       (beam_x),
 	.beam_y       (beam_y),
@@ -546,7 +685,14 @@ vectrex vectrex
 	.beam_ce      (beam_ce),
 	.beam_zero_n  (beam_zero_n),
 	.t2_reload    (t2_reload),
-	.t2_period    (t2_period)
+	.t2_period    (t2_period),
+
+	.ptx_enable   (ptx_active),
+	.ptx_addr     (ptx_addr),
+	.ptx_do       (ptx_do),
+	.ptx_rw       (ptx_rw),
+	.e_fall_o     (vec_e_fall),
+	.psg_ioa_o    (vec_psg_ioa)
 );
 
 
@@ -631,6 +777,20 @@ vectrex_video vectrex_video
 	.ddram_din          (DDRAM_DIN),
 	.ddram_be           (DDRAM_BE),
 	.ddram_we           (DDRAM_WE),
+	.ptx_read_ready     (ptx_read_ready),
+	.ptx_read_grant     (ptx_read_grant),
+	.ptx_read_addr      (ptx_read_addr),
+	.ptx_read_burstcnt  (ptx_read_burstcnt),
+	.ptx_read_data      (ptx_read_data),
+	.ptx_read_data_valid(ptx_read_data_valid),
+	.ptx_write_ready    (ptx_write_ready),
+	.ptx_write_grant    (ptx_write_grant),
+	.ptx_write_done     (ptx_write_done),
+	.ptx_write_addr     (ptx_write_addr),
+	.ptx_write_burstcnt (ptx_write_burstcnt),
+	.ptx_write_data     (ptx_write_data),
+	.ptx_write_be       (ptx_write_be),
+	.ptx_write_advance  (ptx_write_advance),
 
 	.sdram_dq           (SDRAM_DQ),
 	.sdram_clk          (SDRAM_CLK),

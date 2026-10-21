@@ -45,3 +45,11 @@ set_net_delay -max 33.333 \
 set_net_delay -max 6.400 \
 	-from [get_registers {*|artwork_overlay|loader|upload_fifo|rd_gray[*]}] \
 	-to [get_registers {*|artwork_overlay|loader|upload_fifo|rd_gray_meta[*]}]
+
+# PiTrex command FIFO: clk_125 (DDR ring reader) to clk_sys (24 MHz player), and back.
+set_net_delay -max 8.000 \
+	-from [get_registers {*|pitrex_fifo|wr_gray[*]}] \
+	-to [get_registers {*|pitrex_fifo|wr_gray_meta[*]}]
+set_net_delay -max 8.000 \
+	-from [get_registers {*|pitrex_fifo|rd_gray[*]}] \
+	-to [get_registers {*|pitrex_fifo|rd_gray_meta[*]}]

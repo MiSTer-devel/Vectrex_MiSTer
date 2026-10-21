@@ -110,6 +110,22 @@ module vectrex_video
 	output wire [12:0] sdram_a,
 	output wire [1:0]  sdram_ba,
 
+	// PiTrex command ring client (clk_125 domain)
+	input  wire        ptx_read_ready,
+	output wire        ptx_read_grant,
+	input  wire [28:0] ptx_read_addr,
+	input  wire [7:0]  ptx_read_burstcnt,
+	output wire [63:0] ptx_read_data,
+	output wire        ptx_read_data_valid,
+	input  wire        ptx_write_ready,
+	output wire        ptx_write_grant,
+	output wire        ptx_write_done,
+	input  wire [28:0] ptx_write_addr,
+	input  wire [7:0]  ptx_write_burstcnt,
+	input  wire [63:0] ptx_write_data,
+	input  wire [7:0]  ptx_write_be,
+	output wire        ptx_write_advance,
+
 	output wire fifo_full_led
 );
 import vfb_control_pkg::*;
@@ -768,6 +784,20 @@ vfb_top framebuffer
 	.DDRAM_DIN                (ddram_din),
 	.DDRAM_BE                 (ddram_be),
 	.DDRAM_WE                 (ddram_we),
+	.ptx_read_ready           (ptx_read_ready),
+	.ptx_read_grant           (ptx_read_grant),
+	.ptx_read_addr            (ptx_read_addr),
+	.ptx_read_burstcnt        (ptx_read_burstcnt),
+	.ptx_read_data            (ptx_read_data),
+	.ptx_read_data_valid      (ptx_read_data_valid),
+	.ptx_write_ready          (ptx_write_ready),
+	.ptx_write_grant          (ptx_write_grant),
+	.ptx_write_done           (ptx_write_done),
+	.ptx_write_addr           (ptx_write_addr),
+	.ptx_write_burstcnt       (ptx_write_burstcnt),
+	.ptx_write_data           (ptx_write_data),
+	.ptx_write_be             (ptx_write_be),
+	.ptx_write_advance        (ptx_write_advance),
 
 	.SDRAM_DQ_IN              (sdram_dq),
 	.SDRAM_DQ_OUT             (sdram_dq_out),

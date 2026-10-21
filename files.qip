@@ -49,5 +49,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/videodr0me_fb/vfb_async_fifo.
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/videodr0me_fb/vfb_interlacer.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/vectrex_beam_adapter.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/vectrex_video.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/pitrex/pitrex_player.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/pitrex/pitrex_ddr.sv
 set_global_assignment -name SDC_FILE Vectrex.sdc
 set_global_assignment -name SYSTEMVERILOG_FILE Vectrex.sv

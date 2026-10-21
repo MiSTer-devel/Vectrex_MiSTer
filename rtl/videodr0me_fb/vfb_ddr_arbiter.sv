@@ -2,8 +2,8 @@
 // Fixed-priority DDRAM burst arbiter.
 // Copyright (C) 2026 Videodr0me
 // SPDX-License-Identifier: GPL-2.0-or-later
-// Priority is readout, flush, fill, composition, artwork upload, then artwork
-// readout. The arbiter routes requests, drains in-flight bursts across reset,
+// Priority is readout, flush, fill, composition, PiTrex ring read/write,
+// artwork upload, then artwork readout. The arbiter routes requests, drains in-flight bursts across reset,
 // and completes invalid bursts locally without accessing DDRAM.
 // ============================================================================
 
@@ -78,6 +78,23 @@ module vfb_ddr_arbiter (
 	input  wire  [7:0]  upload_write_be,
 	output wire         upload_write_advance,
 
+	// PiTrex command ring (between composition and artwork upload)
+	input  wire         ptx_read_ready,
+	output logic        ptx_read_grant,
+	input  wire  [28:0] ptx_read_addr,
+	input  wire  [7:0]  ptx_read_burstcnt,
+	output logic [63:0] ptx_read_data,
+	output logic        ptx_read_data_valid,
+
+	input  wire         ptx_write_ready,
+	output logic        ptx_write_grant,
+	output logic        ptx_write_done,
+	input  wire  [28:0] ptx_write_addr,
+	input  wire  [7:0]  ptx_write_burstcnt,
+	input  wire  [63:0] ptx_write_data,
+	input  wire  [7:0]  ptx_write_be,
+	output wire         ptx_write_advance,
+
 	// Artwork readout (lowest priority)
 	input  wire         artwork_read_ready,
 	output logic        artwork_read_grant,
@@ -91,29 +108,33 @@ module vfb_ddr_arbiter (
 );
 import vfb_layout_pkg::*;
 
-typedef enum logic [2:0] {
+typedef enum logic [3:0] {
 	ARB_IDLE,
 	ARB_READOUT,
 	ARB_FILL,
 	ARB_FLUSH,
 	ARB_COMPOSE_READ,
 	ARB_COMPOSE_WRITE,
+	ARB_PTX_READ,
+	ARB_PTX_WRITE,
 	ARB_UPLOAD_WRITE,
 	ARB_ARTWORK_READ
 } arb_state_t;
 
 arb_state_t arb_state = ARB_IDLE;
 
-localparam logic [6:0] SELECT_READOUT       = 7'b1000000;
-localparam logic [6:0] SELECT_FLUSH         = 7'b0100000;
-localparam logic [6:0] SELECT_FILL          = 7'b0010000;
-localparam logic [6:0] SELECT_COMPOSE_READ  = 7'b0001000;
-localparam logic [6:0] SELECT_COMPOSE_WRITE = 7'b0000100;
-localparam logic [6:0] SELECT_UPLOAD_WRITE  = 7'b0000010;
-localparam logic [6:0] SELECT_ARTWORK_READ  = 7'b0000001;
+localparam logic [8:0] SELECT_READOUT       = 9'b100000000;
+localparam logic [8:0] SELECT_FLUSH         = 9'b010000000;
+localparam logic [8:0] SELECT_FILL          = 9'b001000000;
+localparam logic [8:0] SELECT_COMPOSE_READ  = 9'b000100000;
+localparam logic [8:0] SELECT_COMPOSE_WRITE = 9'b000010000;
+localparam logic [8:0] SELECT_PTX_READ      = 9'b000001000;
+localparam logic [8:0] SELECT_PTX_WRITE     = 9'b000000100;
+localparam logic [8:0] SELECT_UPLOAD_WRITE  = 9'b000000010;
+localparam logic [8:0] SELECT_ARTWORK_READ  = 9'b000000001;
 
-(* keep *) logic [6:0] arb_select;
-logic [6:0]  arb_select_q   = '0;
+(* keep *) logic [8:0] arb_select;
+logic [8:0]  arb_select_q   = '0;
 logic [28:0] arb_addr_q     = '0;
 logic [7:0]  arb_burstcnt_q = '0;
 logic [8:0]  arb_target_q   = '0;
@@ -129,6 +150,10 @@ always_comb begin
 		arb_select = SELECT_COMPOSE_READ;
 	else if (compose_write_ready)
 		arb_select = SELECT_COMPOSE_WRITE;
+	else if (ptx_read_ready)
+		arb_select = SELECT_PTX_READ;
+	else if (ptx_write_ready)
+		arb_select = SELECT_PTX_WRITE;
 	else if (upload_write_ready)
 		arb_select = SELECT_UPLOAD_WRITE;
 	else if (artwork_read_ready)
@@ -149,36 +174,46 @@ logic reset_pending = 0;
 wire  rst_active    = reset_start || reset_pending;
 logic reset_busy_q  = 1'b1;
 always_ff @(posedge clk_sys) reset_busy_q <= rst_active;
-wire [6:0] arb_select_allowed = rst_sys ? (upload_write_ready ? SELECT_UPLOAD_WRITE : 7'd0)
+wire [8:0] arb_select_allowed = rst_sys ? (upload_write_ready ? SELECT_UPLOAD_WRITE : 9'd0)
                                         : arb_select;
 
 // Sample the one-hot-selected payload independently; arb_select_q accepts it.
 always_ff @(posedge clk_sys) begin
 	unique case (1'b1)
-		arb_select_allowed[6]: begin
+		arb_select_allowed[8]: begin
 			arb_addr_q     <= readout_addr;
 			arb_burstcnt_q <= readout_burstcnt[7:0];
 			arb_target_q   <= readout_burstcnt;
 		end
-		arb_select_allowed[5]: begin
+		arb_select_allowed[7]: begin
 			arb_addr_q     <= flush_addr;
 			arb_burstcnt_q <= flush_burstcnt;
 			arb_target_q   <= {1'b0, flush_burstcnt};
 		end
-		arb_select_allowed[4]: begin
+		arb_select_allowed[6]: begin
 			arb_addr_q     <= fill_addr;
 			arb_burstcnt_q <= fill_burstcnt;
 			arb_target_q   <= {1'b0, fill_burstcnt};
 		end
-		arb_select_allowed[3]: begin
+		arb_select_allowed[5]: begin
 			arb_addr_q     <= compose_read_addr;
 			arb_burstcnt_q <= compose_read_burstcnt;
 			arb_target_q   <= {1'b0, compose_read_burstcnt};
 		end
-		arb_select_allowed[2]: begin
+		arb_select_allowed[4]: begin
 			arb_addr_q     <= compose_write_addr;
 			arb_burstcnt_q <= compose_write_burstcnt;
 			arb_target_q   <= {1'b0, compose_write_burstcnt};
+		end
+		arb_select_allowed[3]: begin
+			arb_addr_q     <= ptx_read_addr;
+			arb_burstcnt_q <= ptx_read_burstcnt;
+			arb_target_q   <= {1'b0, ptx_read_burstcnt};
+		end
+		arb_select_allowed[2]: begin
+			arb_addr_q     <= ptx_write_addr;
+			arb_burstcnt_q <= ptx_write_burstcnt;
+			arb_target_q   <= {1'b0, ptx_write_burstcnt};
 		end
 		arb_select_allowed[1]: begin
 			arb_addr_q     <= upload_write_addr;
@@ -201,11 +236,15 @@ logic discard_q = 1'b0;
 
 // Check the burst length and address range before issuing a DDRAM request.
 wire request_artwork = arb_select_q[1] || arb_select_q[0];
+wire request_ptx = arb_select_q[3] || arb_select_q[2];
 wire        request_has_beats = arb_target_q != 9'd0;
 wire [29:0] request_last = {1'b0, arb_addr_q} +
 	{21'd0, arb_target_q} - 30'd1;
 wire request_safe = request_has_beats &&
-	(request_artwork
+	(request_ptx
+		? ((arb_addr_q >= VFB_PITREX_BASE) &&
+		   (request_last <= {1'b0, VFB_PITREX_LAST}))
+	: request_artwork
 		? ((arb_addr_q >= VFB_ARTWORK_BASE) &&
 		   (request_last <= {1'b0, VFB_ARTWORK_LAST}))
 		: ((arb_addr_q >= VFB_FRAMEBUFFER_BASE) &&
@@ -222,11 +261,13 @@ assign DDRAM_DIN =
 	(arb_state == ARB_FLUSH) ? flush_din :
 	(arb_state == ARB_COMPOSE_WRITE) ? compose_write_data :
 	(arb_state == ARB_UPLOAD_WRITE) ? upload_write_data :
+	(arb_state == ARB_PTX_WRITE) ? ptx_write_data :
 	64'd0;
 assign DDRAM_BE =
 	(arb_state == ARB_FLUSH) ? flush_be :
 	(arb_state == ARB_COMPOSE_WRITE) ? compose_write_be :
 	(arb_state == ARB_UPLOAD_WRITE) ? upload_write_be :
+	(arb_state == ARB_PTX_WRITE) ? ptx_write_be :
 	8'h00;
 
 assign flush_advance         = (arb_state == ARB_FLUSH) && write_beat;
@@ -234,6 +275,7 @@ assign compose_write_advance = (arb_state == ARB_COMPOSE_WRITE) &&
 	write_beat;
 assign upload_write_advance = (arb_state == ARB_UPLOAD_WRITE) &&
 	write_beat;
+assign ptx_write_advance = (arb_state == ARB_PTX_WRITE) && write_beat;
 assign reset_busy = reset_busy_q;
 assign reset_busy_d = rst_active;
 
@@ -261,6 +303,10 @@ always_ff @(posedge clk_sys) begin
 	compose_write_done      <= 0;
 	upload_write_done       <= 0;
 	artwork_read_grant      <= 0;
+	ptx_read_grant          <= 0;
+	ptx_write_grant         <= 0;
+	ptx_write_done          <= 0;
+	ptx_read_data_valid     <= 0;
 	readout_data_valid      <= 0;
 	fill_data_valid         <= 0;
 	compose_read_data_valid <= 0;
@@ -283,30 +329,40 @@ always_ff @(posedge clk_sys) begin
 				burst_target   <= request_has_beats ? arb_target_q : 9'd1;
 				discard_q      <= !request_safe;
 				unique case (1'b1)
-				arb_select_q[6]: begin
+				arb_select_q[8]: begin
 					arb_state     <= ARB_READOUT;
 					internal_rd   <= request_safe;
 					readout_grant <= 1;
 				end
-				arb_select_q[5]: begin
+				arb_select_q[7]: begin
 					arb_state   <= ARB_FLUSH;
 					internal_we <= request_safe;
 					flush_grant <= 1;
 				end
-				arb_select_q[4]: begin
+				arb_select_q[6]: begin
 					arb_state   <= ARB_FILL;
 					internal_rd <= request_safe;
 					fill_grant  <= 1;
 				end
-				arb_select_q[3]: begin
+				arb_select_q[5]: begin
 					arb_state          <= ARB_COMPOSE_READ;
 					internal_rd        <= request_safe;
 					compose_read_grant <= 1;
 				end
-				arb_select_q[2]: begin
+				arb_select_q[4]: begin
 					arb_state           <= ARB_COMPOSE_WRITE;
 					internal_we         <= request_safe;
 					compose_write_grant <= 1;
+				end
+				arb_select_q[3]: begin
+					arb_state      <= ARB_PTX_READ;
+					internal_rd    <= request_safe;
+					ptx_read_grant <= 1;
+				end
+				arb_select_q[2]: begin
+					arb_state       <= ARB_PTX_WRITE;
+					internal_we     <= request_safe;
+					ptx_write_grant <= 1;
 				end
 				arb_select_q[1]: begin
 					arb_state   <= ARB_UPLOAD_WRITE;
@@ -390,6 +446,31 @@ always_ff @(posedge clk_sys) begin
 			end
 		end
 
+		ARB_PTX_READ: begin
+			if (read_command_accepted) internal_rd <= 0;
+
+			if (read_beat) begin
+				if (!rst_active) begin
+					ptx_read_data       <= read_beat_data;
+					ptx_read_data_valid <= 1;
+				end
+				burst_counter <= burst_counter + 1'b1;
+				if (burst_counter == burst_target - 1'b1)
+					arb_state <= ARB_IDLE;
+			end
+		end
+
+		ARB_PTX_WRITE: begin
+			if (ptx_write_advance) begin
+				burst_counter <= burst_counter + 1'b1;
+				if (burst_counter == burst_target - 1'b1) begin
+					internal_we <= 0;
+					if (!rst_active) ptx_write_done <= 1;
+					arb_state <= ARB_IDLE;
+				end
+			end
+		end
+
 		ARB_UPLOAD_WRITE: begin
 			if (upload_write_advance) begin
 				burst_counter <= burst_counter + 1'b1;
@@ -430,6 +511,8 @@ always_ff @(posedge clk_sys) begin
 			compose_write_done      <= 1'b0;
 			upload_write_done       <= 1'b0;
 			artwork_read_data_valid <= 1'b0;
+			ptx_read_data_valid     <= 1'b0;
+			ptx_write_done          <= 1'b0;
 		end
 	endcase
 end

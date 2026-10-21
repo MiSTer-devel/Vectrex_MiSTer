@@ -130,7 +130,15 @@ port
 	beam_zero_n : out std_logic;
 	-- Accepted Timer 2 reload pulse and period in the machine clock domain.
 	t2_reload : out std_logic;
-	t2_period : out std_logic_vector(15 downto 0)
+	t2_period : out std_logic_vector(15 downto 0);
+	-- PiTrex mode: the 6809 is held in reset and the ARM command player
+	-- drives the bus (one access per E-cycle, from the falling-E enable).
+	ptx_enable : in  std_logic := '0';
+	ptx_addr   : in  std_logic_vector(15 downto 0) := (others => '1');
+	ptx_do     : in  std_logic_vector( 7 downto 0) := (others => '0');
+	ptx_rw     : in  std_logic := '1';
+	e_fall_o   : out std_logic;
+	psg_ioa_o  : out std_logic_vector(7 downto 0)
 );
 end vectrex;
 
@@ -158,6 +166,9 @@ signal cpu_addr       : std_logic_vector(15 downto 0);
 signal cpu_di         : std_logic_vector( 7 downto 0);
 signal cpu_do         : std_logic_vector( 7 downto 0);
 signal cpu_rw         : std_logic;
+signal cpu_addr_core  : std_logic_vector(15 downto 0);
+signal cpu_do_core    : std_logic_vector( 7 downto 0);
+signal cpu_rw_core    : std_logic;
 signal cpu_bus_hold_q : std_logic_vector( 7 downto 0) := (others => '0');
 
 signal ram_cs        : std_logic;
@@ -588,16 +599,16 @@ port map
 (
 	CLK    => clock,
 	CLKEN  => cpu_en,
-	nRESET => not reset_machine,
+	nRESET => not (reset_machine or ptx_enable),
 
 	riseE => cpu_e_rise,
 	fallE => cpu_e_fall,
 	riseQ => rQ,
 
 	Din  => cpu_di,
-	Dout => cpu_do,
-	ADDR => cpu_addr,
-	RnW  => cpu_rw,
+	Dout => cpu_do_core,
+	ADDR => cpu_addr_core,
+	RnW  => cpu_rw_core,
 
 	nIRQ  => via_irq_n,
 	nFIRQ => not rt_1
@@ -655,6 +666,13 @@ end process;
 -- sound
 
 ay_reset_n <= not reset_machine;
+
+-- PiTrex mode bus mux (see port comment).
+cpu_addr  <= ptx_addr when ptx_enable = '1' else cpu_addr_core;
+cpu_do    <= ptx_do   when ptx_enable = '1' else cpu_do_core;
+cpu_rw    <= ptx_rw   when ptx_enable = '1' else cpu_rw_core;
+e_fall_o  <= cpu_e_fall;
+psg_ioa_o <= players_switches;
 
 ay_3_8912 : jt49_bus
 generic map(
