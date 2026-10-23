@@ -53,6 +53,8 @@ then load the ROM. The [demo README](games/NeonHawk/README.md) covers controls a
 | **Cartridges** | Standard ROM cartridges; later homebrew PB6-banked and SST39SF020A flash designs | Standard ROMs, 64 KiB PB6 banking (e.g. Vector Patrol), and 256 KiB four-bank flash (e.g. Vectorblade and Telengard), with persistent saves |
 | **Controls** | Two controller ports; each controller has an analog stick and four buttons | Analog stick, D-pad, and remappable MiSTer buttons for two players |
 
+**Experimental PiTrex and UVMC2 support:** Check out [z00p's Vectrex fork](https://github.com/z00p/Vectrex_MiSTer), which runs PiTrex and UVMC2 software using the DE10-Nano's ARM processor. This is a separate project and an experimental work in progress; see the fork for downloads, instructions and compatibility information.
+
 ---
 
 ## Requirements
