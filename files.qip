@@ -9,7 +9,14 @@ set_global_assignment -name VERILOG_FILE rtl/mc6809is.v
 set_global_assignment -name VERILOG_FILE rtl/mc6809.v
 set_global_assignment -name VERILOG_FILE rtl/random_xor.v
 set_global_assignment -name VHDL_FILE rtl/vectrex_cartridge.vhd
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/vectrex_flash_save.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/vectrex_24c02.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/vectrex_11aa010.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/vectrex_eeprom.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/vectrex_1wire.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/vectrex_save_catalog.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/vectrex_high_scores.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/vectrex_cartridge_save.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/vectrex_status_guard.sv
 set_global_assignment -name VHDL_FILE rtl/vectrex_analog_frontend.vhd
 set_global_assignment -name VHDL_FILE rtl/vectrex.vhd
 set_global_assignment -name VERILOG_FILE rtl/pause.v

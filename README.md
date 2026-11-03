@@ -45,12 +45,12 @@ then load the ROM. The [demo README](games/NeonHawk/README.md) covers controls a
 | Subsystem | Original Hardware | FPGA Implementation |
 |---|---|---|
 | **CPU** | Motorola MC68A09 at 1.5 MHz | Greg Miller's cycle-accurate MC6809, adapted to Vectrex bus timing with corrected NMI arming, reset interrupt state, and `SEX` flags |
-| **I/O and Timing** | MOS 6522 VIA | Gideon Zweijtzer's VIA model clocked on the Vectrex's inverted MC6809 E half-cycle, with corrected Timer 1 sequencing, full eight-bit shift output, CB2 beam-blanking timing, and interrupt readback |
+| **I/O and Timing** | MOS 6522 VIA | Gideon Zweijtzer's VIA model clocked in phase with the MC6809 E clock, with corrected Timer 1 sequencing, serial output, CB2 beam-blanking timing and interrupt readback |
 | **Vector Generator** | 8-bit MC1408 DAC, CD4052 analog multiplexer, sample-and-hold circuits, and X/Y integrators | 12 MHz sampled DAC, multiplexer, reference, and integrator model with acquisition delays, calibrated beam cutoff and dwell energy, and Q301 RAMP timing |
 | **Sound** | General Instrument AY-3-8912 PSG and MC1408 DAC audio | JT49 with Vectrex logarithmic volume mapping, corrected signed direct-DAC samples, and PSG/DAC balance calibrated against a real Vectrex line-out recording |
 | **Speech** | Optional SP0256-AL2 VecVoice accessory connected through controller port 2, with separate audio output | Selectable SP0256-AL2 implementation using the physical PSG Port A serial-data and ready lines, digitally mixed at an adjustable speech level |
 | **Display** | Built-in 9-inch monochrome XY vector CRT with interchangeable color overlays | 1080p, 720p, 480p, 480i, and 240p output through a 125 MHz tile/DDRAM renderer, with bloom, broad halo, tone mapping, phosphor decay, and alpha-channel overlays with independent translucent and opaque controls |
-| **Cartridges** | Standard ROM cartridges; later homebrew PB6-banked and SST39SF020A flash designs | Standard ROMs, 64 KiB PB6 banking (e.g. Vector Patrol), and 256 KiB four-bank flash (e.g. Vectorblade and Telengard), with persistent saves |
+| **Cartridges** | Standard ROM cartridges; later homebrew PB6-banked, flash and serial EEPROM designs | Standard ROMs, 64 KiB PB6 banking, 256 KiB four-bank flash, and supported serial EEPROM cartridges, with per-ROM saves |
 | **Controls** | Two controller ports; each controller has an analog stick and four buttons | Analog stick, D-pad, and remappable MiSTer buttons for two players |
 
 **Experimental PiTrex and UVMC2 support:** Check out [z00p's Vectrex fork](https://github.com/z00p/Vectrex_MiSTer), which runs PiTrex and UVMC2 software using the DE10-Nano's ARM processor. This is a separate project and an experimental work in progress; see the fork for downloads, instructions and compatibility information.
@@ -64,6 +64,12 @@ The high-resolution vector and CRT-effects pipeline uses MiSTer SDRAM and requir
 ---
 
 ## Installation
+
+The bundled games, profile guide and artwork tools are available in the
+[Vectrex repository](https://github.com/MiSTer-devel/Vectrex_MiSTer). If you
+installed the core with Downloader or Update All, copy the ROM and matching
+`.art` file for each game you want from the repository's `games` folder to
+`/media/fat/games/Vectrex/`.
 
 The core uses MiSTer's console directory structure:
 
@@ -105,14 +111,30 @@ The controls are remappable through MiSTer's normal input assignment menu. When 
 
 ## Recommended MiSTer Video Settings
 
-Unlike a conventional raster-console core, Vectrex has no native pixel resolution. The core reconstructs vectors directly at the output resolution reported by MiSTer for maximal quality without additional scaling. HDMI users whose HD display is already configured through `video_mode` do not need to select another resolution; the core follows it automatically. The per-core settings below are nevertheless recommended for the best presentation.
+A conventional raster core starts with the game's original pixel grid and
+scales that image for higher-resolution output. The Vectrex draws lines
+directly on its CRT, so its games have no fixed pixel resolution. This core
+draws vectors directly at the requested output resolution for maximum image quality.
 
-The renderer supports 1080p, 720p, 480p, 480i, and 240p output. **1080p is recommended** for the highest vector detail. Compatible 720p displays can also use the optional 120 Hz mode.
+The core supports 1080p, 720p, 480p, 480i and 240p. Choose the highest
+listed resolution your display supports. This avoids unnecessary scaling
+and keeps fine detail and diagonal lines sharp. Compatible displays can
+also use the optional 120 Hz mode at 720p.
 
-For high-resolution flat-panel output, place the following entries under the exact `[Vectrex]` header at the end of `MiSTer.ini`. Empty filter and mask entries prevent MiSTer's scaler effects from altering the core's own CRT pipeline.
+Put the settings for your display in one `[Vectrex]` section at the end
+of `MiSTer.ini`. The CRT headings give the nominal horizontal scan rate in
+kHz.
+
+### Modern HD Flat-Panel Displays (HDMI)
+
+**1080p** gives the highest vector detail. If MiSTer is already set to
+1080p or 720p, the core uses that resolution automatically. This example
+selects 1080p and clears MiSTer's filter and mask settings so you see the
+core's own CRT effects.
 
 ```ini
 [Vectrex]
+direct_video=0
 video_mode=8   ; 8 = 1080p, 0 = 720p
 video_mode_ntsc=
 video_mode_pal=
@@ -127,29 +149,92 @@ shmask_default=
 shmask_mode_default=0
 ```
 
-### CRT Output
+### CRT 15 kHz (240p or 480i)
 
-> **Required for 15 kHz CRT output:** Place the following `[Vectrex]` section at the end of `MiSTer.ini` so it overrides earlier global settings. These settings prevent an out-of-range HD signal and provide the best image quality.
+For a 15 kHz CRT connected to MiSTer's analog I/O output, use the settings
+below. Under **Video Overlay & Geometry**, **15 kHz Format** selects
+**480i** (default) or **240p**.
+
 ```ini
 [Vectrex]
+direct_video=0
 video_mode=720,240,60
-vsync_adjust=0
 video_mode_ntsc=
 video_mode_pal=
+vsync_adjust=0
 vga_scaler=0
 forced_scandoubler=0
 ```
-For a **31 kHz CRT**, use this `video_mode` instead:
-```ini
-video_mode=720,480,60
-```
-Under **Video Overlay & Geometry**, **15 kHz Format** selects 480i or 240p, with 480i used by default.
 
-**CRT Vertical Offset** moves the whole picture up or down without changing its size. Positive steps move it down; negative steps move it up. The default is **0**; the setting has no effect at 720p or 1080p.
+### CRT 31 kHz (480p)
+
+Use this setup for a CRT that accepts 480p at a horizontal scan rate of
+about 31 kHz.
+
+```ini
+[Vectrex]
+direct_video=0
+video_mode=720,480,60
+video_mode_ntsc=
+video_mode_pal=
+vsync_adjust=0
+vga_scaler=0
+forced_scandoubler=0
+```
+
+### Multisync CRT 45 kHz (720p at 60 Hz)
+
+> **Warning.** Before selecting 720p or 1080p, check the horizontal scan
+> range (kHz) and vertical refresh range (Hz) in your CRT's manual.
+> Running some older fixed-frequency CRTs above their horizontal scan
+> limit can damage them.
+
+For 720p at 60 Hz on MiSTer's analog I/O output, use the following settings.
+
+```ini
+[Vectrex]
+direct_video=0
+video_mode=0
+video_mode_ntsc=
+video_mode_pal=
+vsync_adjust=0
+vga_scaler=0
+forced_scandoubler=0
+```
+
+Leave **120Hz (720p only)** off for this setup. Enabling it requires a
+monitor that accepts about **90 kHz horizontal** and **120 Hz vertical**.
+
+### Multisync CRT 67.5 kHz (1080p at 60 Hz)
+
+Use this setup on MiSTer's analog I/O output if your CRT accepts
+**67.5 kHz horizontal** and **60 Hz vertical**.
+
+```ini
+[Vectrex]
+direct_video=0
+video_mode=8
+video_mode_ntsc=
+video_mode_pal=
+vsync_adjust=0
+vga_scaler=0
+forced_scandoubler=0
+```
 
 ### Direct Video Output
 
-For Direct Video, use the same settings and additionally add `direct_video=1` to the `[Vectrex]` section. This enables **Direct Video Scan Rate**, which selects **15 kHz** or **31 kHz** output. At 15 kHz, **15 kHz Format** selects **480i** or **240p**.
+For 15 or 31 kHz CRT output through an HDMI-to-analog Direct Video adapter,
+set `direct_video=1` in `[Vectrex]`. Use **Direct Video Scan Rate** to select
+**15 kHz** or **31 kHz**. At 15 kHz, **15 kHz Format** selects **480i** or
+**240p**.
+
+### RetroTINK over HDMI
+
+**Note for RetroTINK users:** If you normally leave Direct Video enabled,
+override it for this core with **`direct_video=0` and `video_mode=8`** to
+give your scaler the highest-quality 1080p source. Direct Video limits the
+core's native rendering to 480p/i or 240p. Upscaling that lower-resolution
+image to 4K cannot recover the vector detail available from native 1080p.
 
 ---
 
@@ -189,10 +274,11 @@ See [Video Settings and Profiles](Profiles/README.md) for details and tuning adv
 | **Direct Video Scan Rate** | Selects **15 kHz** or **31 kHz**; shown only while Direct Video is active. |
 | **15 kHz Format** | Selects **480i** (default) or **240p**; shown only in 15 kHz modes. |
 | **CRT Vertical Offset** | Moves the entire CRT picture vertically (standard orientation), including the overlay. **0** is default; positive steps move down and negative steps move up. Applies to 240p, 480p and 480i. |
+| **CRT Horizontal Offset** | Moves the entire CRT picture, including the overlay, four pixels per step. Positive steps move right and negative steps move left, up to 12 pixels either way. **0** is default. Applies to 240p, 480p and 480i. |
 
 Adjust the overlay brightness to recreate different room lighting. Lower **Translucent Blend** and **Opaque Brightness** for a nighttime look that lets the vectors stand out. Raise them for a daytime look with a more prominent overlay.
 
-Open Matte can reveal substantial geometry drawn outside the normally visible area of a Vectrex screen. In titles such as Pole Position, the Neon Hawk demo and Hyper Chase, this exposes normally hidden parts of the scene, allowing these titles to be experienced in a new way.
+Open Matte can reveal substantial geometry drawn outside the normally visible area of a Vectrex screen. In titles such as Pole Position, the Neon Hawk demo and Hyperchase, this exposes normally hidden parts of the scene, allowing these titles to be experienced in a new way.
 
 **View** cycles through these settings, skipping step 1 when no overlay is loaded. The OSD and a brief on-screen message show the selection.
 
@@ -214,8 +300,8 @@ View is inactive while the OSD is open. Loading an overlay selects Overlay On, F
 | **Beam Threshold** | Sets the global beam cutoff: **Z 20** (default), **Z 24**, **Z 28**, or **Off**. The remaining visible levels span the full brightness range in every mode. Off accepts all positive Z levels. Applies to every profile. |
 | **Port 2** | Selects **Joystick** (default) for 2-player support, or **VecVoice (SP0256)** for the speech synthesizer. |
 | **Speech Level** | Selects **Normal** (default), **Low** or **High** speech volume. Greyed out when Port 2 is set to Joystick. |
-| **Cartridge Autosave** | Automatically saves pending cartridge changes after one second without flash activity (**On** by default). Available only for titles whose flash-save hardware is supported by the core. |
-| **Save Cartridge** | Manually writes pending flash changes to SD card. Shown only for flash cartridges. |
+| **Cartridge Autosave** | Automatically saves updated cartridge data or high scores after one second without further save activity. **On** by default. Available for supported games. |
+| **Save Cartridge** | Saves pending cartridge data or high scores to the SD card. Use this when Cartridge Autosave is Off. |
 | **Pause when OSD open** | Pauses the emulated console while the OSD is open (**Off** by default). |
 | **Dim video after 60s** | Dims the display after 60 seconds of pause to reduce the risk of burn-in (**On** by default). |
 
@@ -258,11 +344,67 @@ Overlay artwork is usually supplied as an **846 x 1080 PNG**. The build tool con
 
 ## Cartridge Saves
 
-The four-bank flash cartridges used by Vectorblade and Telengard support persistent storage. The core saves the flash sectors written by the game, including its settings, scores, and any game-managed saved progress.
+The core remembers game data between sessions using a separate `.sav` file
+for each loaded ROM. Supported games are recognized automatically.
 
-**Cartridge Autosave** is on by default. Saving starts after one second without flash activity; **System > Save Cartridge** saves pending changes manually. Wait for the user LED to go out before loading another game, reloading the core, or switching off. Console reset does not cancel a save. With Autosave off, pending changes remain in memory until saved manually.
+### Games with built-in saving
 
-MiSTer stores a separate `.sav` file named after the ROM in its Vectrex saves directory.
+These games can save calibration, settings, scores or progress, depending
+on the save features built into the game.
+
+| Game | Supported versions |
+|---|---|
+| **Vectorblade** | Four-bank 256 KiB flash versions, including the bundled v1.13. |
+| **Telengard** | Four-bank 256 KiB flash versions, including the bundled v1.03. |
+| **Vector Pilot** | 64 KiB versions using UNI/O EEPROM, plus recognized I2C EEPROM versions. |
+| **Vector Patrol** | 64 KiB versions using I2C EEPROM. |
+| **Thrust** | Saving-enabled v1.01, v1.2 and Spinner Hack versions. Some distributed v1.01 copies have saving disabled. |
+| **Karl Quappe** | The 32 KiB version. |
+| **Release** | The saving-enabled 32 KiB version. The `_np` build does not save. |
+| **Rocks 'n' Saucers** | The public 2022 standalone release. |
+| **PUCK!** | v0.53 DS edition. The NODS edition does not save. |
+
+Each game decides when to save. Depending on the title, this can happen
+in a save menu, at a checkpoint or at the end of a game.
+
+### High scores for original cartridges and homebrew
+
+The core also preserves the best result for 25 original cartridge images
+and the best score in Veccy Bird. Tour de France retains its fastest time,
+and Vectrexagon retains a separate best time for each mode. No ROM patch
+is needed.
+
+<details>
+<summary>Supported original cartridge games</summary>
+
+Armor Attack, Bedlam, Berzerk, Blitz!, Clean Sweep, Cosmic Chasm, Dark Tower,
+Fortress of Narzod, Heads Up, Hyperchase, Mine Storm II, Polar Rescue,
+Pole Position, Rip Off, Scramble, Solar Quest, Spike, Spinball, Star Castle,
+Star Hawk, Star Ship, Star Trek, Tour de France, Web Warp and Web Wars.
+
+</details>
+
+Support depends on the exact ROM revision. The
+[save catalogue](rtl/vectrex_save_catalog.sv) lists the recognized images
+and cartridge save devices.
+
+For Mine Storm, load the supported Mine Storm II cartridge ROM. The built-in
+game started without a cartridge has no associated save file.
+
+### Saving and restoring
+
+With **Cartridge Autosave** on (the default), the core writes pending
+changes to the SD card after one second without further save activity.
+With autosave off, select **System > Save Cartridge** to write them
+manually.
+
+Wait for the user LED to go out before loading another game, reloading the
+core or switching off. A console reset does not cancel a pending save.
+Saved data is restored automatically when you next load the same ROM.
+
+MiSTer stores each `.sav` file under the ROM's filename in its Vectrex saves
+directory. Renaming a ROM changes which save filename MiSTer uses. If you
+rename a ROM, rename its save file to match if you want to keep the same data.
 
 ---
 
@@ -270,7 +412,6 @@ MiSTer stores a separate `.sav` file named after the ROM in its Vectrex saves di
 
 - **3D Imager:** The 3D Imager is not supported. Titles requiring the 3D Imager (*3D Minestorm*, *3D Narrow Escape*, *3D Crazy Coaster*, and *3D Sector X*) will not work correctly and might not produce visible output.
 - **Light Pen:** The GCE Light Pen is not supported. Titles requiring pen input (*Art Master*, *Melody Master*, and *AnimAction*) cannot be controlled.
-- **Cartridge Saves:** Saving currently supports the 256 KiB four-bank SST39SF020A flash cartridges used by *Vectorblade* and *Telengard*. Other cartridge save hardware is currently unsupported.
 - **Console Audio:** The "Buzz" Vectrex hardware model is simulated for game timing and calibration, but without the physical console's audio buzz.
 
 ---

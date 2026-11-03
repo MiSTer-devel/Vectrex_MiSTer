@@ -38,10 +38,10 @@ Vectorblade manages its own records in cartridge flash. The core persists
 changed sectors to `Vectorblade (v1.13).sav` in MiSTer's Vectrex saves directory
 and restores them before starting the game.
 
-Cartridge Autosave defaults to On. Wait until the user LED goes out before
-switching games or powering off. With Autosave off, use **System > Save
-Cartridge**. This saves only records the game has written to flash, not an
-arbitrary running game state. Console reset preserves flash and pending saves.
+**Cartridge Autosave** is on by default. If you turn it off, choose
+**System > Save Cartridge** after the game writes to flash. Wait for the user
+LED to go out before changing games or switching off. A console reset preserves
+flash contents and pending saves.
 
 Back up important saves. Invalid checksums or a different ROM revision are
 rejected; an interrupted physical disk write cannot be made power-loss safe

@@ -1,9 +1,8 @@
 // Copyright (C) 2026 Videodr0me
 // SPDX-License-Identifier: GPL-2.0-or-later
-// Fourteen ce_pix stages keep light and sync aligned.
-// Three lookup stages precede C1 F(I) with Q4 interpolation.
-// C2 compensation product; C3 target; C4 segment; C5 channel products;
-// C6 rounded products; C7 linear RGB; C8 ambient; C9 address; C10 sRGB; C11 output.
+// Convert composite beam intensity and palette coefficients to display RGB.
+// Fourteen enabled pixel stages keep RGB, sync and blanking aligned. Before C1, read the ROM,
+// register its sample and slope, then multiply the slope by the fractional intensity.
 `default_nettype none
 
 module vfb_final_present (
@@ -20,20 +19,22 @@ import vfb_control_pkg::*;
 
 localparam integer SYNC_STAGES = 13;
 
-// Five hex digits store 17 data bits and three zero padding bits.
+// Each 28-bit ROM word contains three zero bits, a 17-bit luminance sample and its 8-bit rise.
+// The last sample in each bank has zero rise. Four intensity bits give the fractional position.
+// I is composite intensity and F is the calibrated P4 luminance curve.
 // Standard: F(I); Bright: F(4I/3); Boost: F(3I*1450/(2*1024)); Reduced: F(3I/4).
-// Boost coefficients use the shared 820/1024 mapping knee.
-(* ramstyle = "M10K" *) logic [19:0] luminance_rom [0:8191];
-initial $readmemh("rtl/videodr0me_fb/vfb_color_luminance.hex", luminance_rom);
+(* ramstyle = "M10K" *) logic [27:0] luminance_rom [0:8191];
+initial $readmemh("rtl/videodr0me_fb/vfb_color_luminance_slope.hex", luminance_rom);
 wire  [10:0]      intensity      = |ENERGY_IN[16:15] ? 11'h7ff : ENERGY_IN[14:4];
-wire  [10:0]      intensity_next = &intensity ? intensity : intensity + 11'd1;
-wire  [1:0]       luminance_bank = (tone_mapping == TONE_BOOST) ? 2'd2 :
-                                   (tone_mapping == TONE_BRIGHT) ? 2'd1 :
-                                       (tone_mapping == TONE_REDUCED) ? 2'd3 : 2'd0;
+wire  [1:0]       luminance_bank = (tone_mapping == TONE_BOOST)   ? 2'd2 :
+                                   (tone_mapping == TONE_BRIGHT)  ? 2'd1 :
+                                   (tone_mapping == TONE_REDUCED) ? 2'd3 : 2'd0;
 logic [16:0]      luminance_c1, target_c3, argument_c4;
-logic [16:0]      luminance_low_q, luminance_high_q, luminance_base_q, luminance_base_d, luminance_slope_q;
+logic [24:0]      luminance_lookup_q;
+logic [16:0]      luminance_base_q, luminance_base_d;
+logic [7:0]       luminance_slope_q;
 logic [3:0]       luminance_frac_q, luminance_frac_d;
-logic [20:0]      luminance_product_q;
+logic [11:0]      luminance_product_q;
 color_coeff_t     coeff_lookup [0:2];
 logic [33:0]      compensated_c2;
 color_coeff_t     coeff_c1, coeff_c2, coeff_c3;
@@ -62,19 +63,18 @@ endgenerate
 
 always_ff @(posedge clk_sys) begin
 	if (ce_pix) begin
-		luminance_low_q     <= 17'(luminance_rom[{luminance_bank, intensity}]);
-		luminance_high_q    <= 17'(luminance_rom[{luminance_bank, intensity_next}]);
+		luminance_lookup_q  <= 25'(luminance_rom[{luminance_bank, intensity}]);
 		luminance_frac_q    <= &intensity ? 4'd0 : ENERGY_IN[3:0];
 
-		luminance_base_q    <= luminance_low_q;
-		luminance_slope_q   <= luminance_high_q - luminance_low_q;
+		luminance_base_q    <= luminance_lookup_q[24:8];
+		luminance_slope_q   <= luminance_lookup_q[7:0];
 		luminance_frac_d    <= luminance_frac_q;
 
 		luminance_base_d    <= luminance_base_q;
 		luminance_product_q <= luminance_slope_q * luminance_frac_d;
 
 		luminance_c1    <= luminance_base_d +
-		                   17'(luminance_product_q[20:4]) + 17'(luminance_product_q[3]);
+		                   17'(luminance_product_q[11:4]) + 17'(luminance_product_q[3]);
 
 		coeff_lookup[0] <= COEFF_IN;
 		coeff_lookup[1] <= coeff_lookup[0];

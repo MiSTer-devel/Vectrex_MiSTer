@@ -48,7 +48,7 @@ module vfb_buffer_controller #(
 	output logic [BUF_IDX_W-1:0]    buf_display_out,
 	output logic                    display_valid,
 	output logic                    display_is_composed,
-	output logic                    has_draw_buf,
+	output wire                     draw_ready,
 	output logic [BUFFER_COUNT-1:0] buf_draw_hot,
 	output logic                    raw_frame_dropped,
 	output logic [BUF_IDX_W-1:0]    raw_frame_dropped_buf,
@@ -239,6 +239,7 @@ always_ff @(posedge clk_sys) begin
 end
 
 logic [BUF_IDX_W-1:0] internal_buf_draw;
+logic                 has_draw_buf;
 (* preserve, dont_merge *) logic [BUFFER_COUNT-1:0] buf_draw_hot_reg;
 
 assign buf_draw     = internal_buf_draw;
@@ -274,6 +275,10 @@ wire accumulator_idx_valid = (accumulator_buf < BUF_IDX_W'(BUFFER_COUNT));
 // The registered selection can outlive the buffer's DRAWN state by one clock.
 wire oldest_drawn_ready = oldest_drawn_valid_q &&
                           |(oldest_drawn_onehot_q & drawn_mask);
+
+wire eof_flush = eof_token_popped && (buffer_mode_q != BUFFER_VBL);
+// Hold queued pixels from the EOF that closes a frame until the cache sees flush_req.
+assign draw_ready = has_draw_buf && !eof_flush && !flush_pending;
 
 // Select the buffer to display at VBLANK.
 always_comb begin
@@ -384,9 +389,7 @@ always_ff @(posedge clk_sys) begin
 
 		if (evt.drop_raw) raw_frame_dropped_buf <= oldest_drawn_idx_q;
 
-		if (buffer_mode_q == BUFFER_VBL) begin
-			if (vbl_swap_req && has_drawing) flush_pending <= 1'b1;
-		end else if (eof_token_popped && has_drawing) begin
+		if (has_drawing && (eof_flush || ((buffer_mode_q == BUFFER_VBL) && vbl_swap_req))) begin
 			flush_pending <= 1'b1;
 		end
 

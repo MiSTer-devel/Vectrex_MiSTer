@@ -32,6 +32,8 @@ module emu
 	`include "sys/emu_ports.vh"
 );
 
+import vfb_control_pkg::*;
+
 wire       ioctl_download;
 wire       rom_download;
 wire       direct_video;
@@ -70,135 +72,136 @@ localparam CONF_STR = {
 	"-;",
 	// Fixed profiles and two independently saved custom profiles.
 	"H7P1,Video Profiles & Effects;",
-	"P1O[68:66],Profile,80s Cruise Control,80s Overdrive,Neon Blue,Red Alert,Ultraviolet,Custom 1,Custom 2,A Touch of CRT;",
-	"H9HAHBHCHDHEP1-;",
-	"H9HAHBHCHDHEP1-,Crisp vectors. Gentle glow.;",
-	"H9HAHBHCHDHEP1-,A conservatively adjusted;",
-	"H9HAHBHCHDHEP1-,Vectrex for those who keep;",
-	"H9HAHBHCHDHEP1-,the box and want the tube;",
-	"H9HAHBHCHDHEP1-,to last forever.;",
-	"H9HAHBHCHDHEP1-;",
-	"H9HAHBHCHDHEP1-,For advanced settings;",
-	"H9HAHBHCHDHEP1-,select Custom Profiles 1/2;",
-	"h9HAP1-;",
-	"h9HAP1-,The familiar Vectrex glow.;",
-	"h9HAP1-,Luminous lines and bright;",
-	"h9HAP1-,sparks against the dark.;",
-	"h9HAP1-,Full of character with;",
-	"h9HAP1-,the glow kept in balance.;",
-	"h9HAP1-;",
-	"h9HAP1-,For advanced settings;",
-	"h9HAP1-,select Custom Profiles 1/2;",
-	"hAH9P1-;",
-	"hAH9P1-,Hot vectors and fuller glow;",
-	"hAH9P1-,with trails that linger.;",
-	"hAH9P1-,Vectrex turned up a notch.;",
-	"hAH9P1-,A gentle phosphor shimmer;",
-	"hAH9P1-,gives it a livelier pulse.;",
-	"hAH9P1-;",
-	"hAH9P1-,For advanced settings;",
-	"hAH9P1-,select Custom Profiles 1/2;",
-	"h9hAP1-;",
-	"h9hAP1-,Electric blue neon blazes;",
-	"h9hAP1-,white at its brightest.;",
-	"h9hAP1-,A subdued blue halo hangs;",
-	"h9hAP1-,in the dark behind it.;",
-	"h9hAP1-;",
-	"h9hAP1-,Best without an overlay.;",
-	"h9hAP1-,Inspired by Neon Hawk.;",
-	"h9hAP1-;",
-	"h9hAP1-,For advanced settings;",
-	"h9hAP1-,select Custom Profiles 1/2;",
-	"hBP1-;",
-	"hBP1-,Red warning lights ablaze.;",
-	"hBP1-,Wild flicker. Fierce glow.;",
-	"hBP1-,Long restless trails.;",
-	"hBP1-,The CRT pushed past its;",
-	"hBP1-,limits. An arcade meltdown.;",
-	"hBP1-;",
-	"hBP1-,Best without an overlay.;",
-	"hBP1-;",
-	"hBP1-,     Epilepsy warning:;",
-	"hBP1-,    excessive flashing;",
-	"hCP1-;",
-	"hCP1-,Violet arcade fever dream.;",
-	"hCP1-,Boosted until the phosphor;",
-	"hCP1-,almost burns through.;",
-	"hCP1-,Neon haze and long trails.;",
-	"hCP1-,Spectacular explosions;",
-	"hCP1-,flood the screen.;",
-	"hCP1-;",
-	"hCP1-,Best without an overlay.;",
-	"hCP1-;",
-	"hCP1-,     Epilepsy warning:;",
-	"hCP1-,    excessive flashing;",
-	"hDP1O[54:52],> Dwell Low Size,1,2,3,4,5,6,7,8;",
-	"hDP1O[71:69],> Dwell Mid Growth,Same,+1,+2,+3,+4,+5,+6,+7;",
-	"hDP1O[6:4],> Dwell High Growth,Same,+1,+2,+3,+4,+5,+6,+7;",
-	"hDP1O[73:72],> Brightness,Reduced,Standard,Bright,Boost;",
-	"hDP1O[76:74],> Bloom Width,Off,Thin,Tight,Soft,Normal,Broad,Wide-,Wide;",
-	"hDH5P1O[79:77],> Bloom Curve,Minimal,Min+,Mild,Mild+,Moderate,Mod+,Strong-,Strong;",
-	"hDP1O[82:80],> Halo,Off,0.25x,0.33x,0.5x,0.75x,1.0x,1.25x,1.5x;",
-	"hDH6P1O[43:41],> Halo Curve,Minimal,Min+,Mild,Mild+,Moderate,Mod+,Strong-,Strong;",
-	"hDH6P1O[84:83],> Halo Spread,Original,Wide 1,Wide 2,Focus;",
-	"hDH6P1O[57:55],> Halo Compression,Off,2,4,6,8,10,16,24;",
-	"hDH6P1O[38],> Halo Grid,16x16,8x8;",
-	"hDP1O[86:85],> Inter-Frame Decay,Off,Short,Medium,Long;",
-	"hDP1O[88:87],> Intra-Frame Decay,Off,LUT A,LUT B,LUT C;",
-	"hDP1O[91:89],> Vector Color,Vectrex P4,Deluxe Blue,White,Red,Purple,Cyan,Blue;",
-	"hEP1O[126:124],> Dwell Low Size,1,2,3,4,5,6,7,8;",
-	"hEP1O[94:92],> Dwell Mid Growth,Same,+1,+2,+3,+4,+5,+6,+7;",
-	"hEP1O[15:13],> Dwell High Growth,Same,+1,+2,+3,+4,+5,+6,+7;",
-	"hEP1O[96:95],> Brightness,Reduced,Standard,Bright,Boost;",
-	"hEP1O[99:97],> Bloom Width,Off,Thin,Tight,Soft,Normal,Broad,Wide-,Wide;",
-	"hEH5P1O[102:100],> Bloom Curve,Minimal,Min+,Mild,Mild+,Moderate,Mod+,Strong-,Strong;",
-	"hEP1O[105:103],> Halo,Off,0.25x,0.33x,0.5x,0.75x,1.0x,1.25x,1.5x;",
-	"hEH6P1O[46:44],> Halo Curve,Minimal,Min+,Mild,Mild+,Moderate,Mod+,Strong-,Strong;",
-	"hEH6P1O[107:106],> Halo Spread,Original,Wide 1,Wide 2,Focus;",
-	"hEH6P1O[60:58],> Halo Compression,Off,2,4,6,8,10,16,24;",
-	"hEH6P1O[28],> Halo Grid,16x16,8x8;",
-	"hEP1O[109:108],> Inter-Frame Decay,Off,Short,Medium,Long;",
-	"hEP1O[111:110],> Intra-Frame Decay,Off,LUT A,LUT B,LUT C;",
-	"hEP1O[114:112],> Vector Color,Vectrex P4,Deluxe Blue,White,Red,Purple,Cyan,Blue;",
+	"P1O[14:12],Profile,80s Cruise Control,80s Overdrive,Neon Blue,Red Alert,Ultraviolet,Custom 1,Custom 2,A Touch of CRT;",
+	"h9hAhBP1-;",
+	"h9hAhBP1-,Crisp vectors. Gentle glow.;",
+	"h9hAhBP1-,A conservatively adjusted;",
+	"h9hAhBP1-,Vectrex for those who keep;",
+	"h9hAhBP1-,the box and want the tube;",
+	"h9hAhBP1-,to last forever.;",
+	"h9hAhBP1-;",
+	"h9hAhBP1-,For advanced settings;",
+	"h9hAhBP1-,select Custom Profiles 1/2;",
+	"H9HAHBP1-;",
+	"H9HAHBP1-,The familiar Vectrex glow.;",
+	"H9HAHBP1-,Luminous lines and bright;",
+	"H9HAHBP1-,sparks against the dark.;",
+	"H9HAHBP1-,Full of character with;",
+	"H9HAHBP1-,the glow kept in balance.;",
+	"H9HAHBP1-;",
+	"H9HAHBP1-,For advanced settings;",
+	"H9HAHBP1-,select Custom Profiles 1/2;",
+	"h9HAHBP1-;",
+	"h9HAHBP1-,Hot vectors and fuller glow;",
+	"h9HAHBP1-,with trails that linger.;",
+	"h9HAHBP1-,Vectrex turned up a notch.;",
+	"h9HAHBP1-,A gentle phosphor shimmer;",
+	"h9HAHBP1-,gives it a livelier pulse.;",
+	"h9HAHBP1-;",
+	"h9HAHBP1-,For advanced settings;",
+	"h9HAHBP1-,select Custom Profiles 1/2;",
+	"H9hAHBP1-;",
+	"H9hAHBP1-,Electric blue neon blazes;",
+	"H9hAHBP1-,white at its brightest.;",
+	"H9hAHBP1-,A subdued blue halo hangs;",
+	"H9hAHBP1-,in the dark behind it.;",
+	"H9hAHBP1-;",
+	"H9hAHBP1-,Best without an overlay.;",
+	"H9hAHBP1-,Inspired by Neon Hawk.;",
+	"H9hAHBP1-;",
+	"H9hAHBP1-,For advanced settings;",
+	"H9hAHBP1-,select Custom Profiles 1/2;",
+	"h9hAHBP1-;",
+	"h9hAHBP1-,Red warning lights ablaze.;",
+	"h9hAHBP1-,Wild flicker. Fierce glow.;",
+	"h9hAHBP1-,Long restless trails.;",
+	"h9hAHBP1-,The CRT pushed past its;",
+	"h9hAHBP1-,limits. An arcade meltdown.;",
+	"h9hAHBP1-;",
+	"h9hAHBP1-,Best without an overlay.;",
+	"h9hAHBP1-;",
+	"h9hAHBP1-,     Epilepsy warning:;",
+	"h9hAHBP1-,    excessive flashing;",
+	"H9HAhBP1-;",
+	"H9HAhBP1-,Violet arcade fever dream.;",
+	"H9HAhBP1-,Boosted until the phosphor;",
+	"H9HAhBP1-,almost burns through.;",
+	"H9HAhBP1-,Neon haze and long trails.;",
+	"H9HAhBP1-,Spectacular explosions;",
+	"H9HAhBP1-,flood the screen.;",
+	"H9HAhBP1-;",
+	"H9HAhBP1-,Best without an overlay.;",
+	"H9HAhBP1-;",
+	"H9HAhBP1-,     Epilepsy warning:;",
+	"H9HAhBP1-,    excessive flashing;",
+	"hCh9P1O[23:21],> Dwell Low Size,1,2,3,4,5,6,7,8;",
+	"hCh9P1O[26:24],> Dwell Mid Growth,Same,+1,+2,+3,+4,+5,+6,+7;",
+	"hCh9P1O[29:27],> Dwell High Growth,Same,+1,+2,+3,+4,+5,+6,+7;",
+	"hCh9P1O[17:16],> Brightness,Reduced,Standard,Bright,Boost;",
+	"hCh9P1O[36:34],> Bloom Width,Off,Thin,Tight,Soft,Normal,Broad,Wide-,Wide;",
+	"hCh9H5P1O[39:37],> Bloom Curve,Minimal,Min+,Mild,Mild+,Moderate,Mod+,Strong-,Strong;",
+	"hCh9P1O[42:40],> Halo,Off,0.25x,0.33x,0.5x,0.75x,1.0x,1.25x,1.5x;",
+	"hCh9H6P1O[45:43],> Halo Curve,Minimal,Min+,Mild,Mild+,Moderate,Mod+,Strong-,Strong;",
+	"hCh9H6P1O[47:46],> Halo Spread,Original,Wide 1,Wide 2,Focus;",
+	"hCh9H6P1O[50:48],> Halo Compression,Off,2,4,6,8,10,16,24;",
+	"hCh9H6P1O[51],> Halo Grid,16x16,8x8;",
+	"hCh9P1O[31:30],> Inter-Frame Decay,Off,Short,Medium,Long;",
+	"hCh9P1O[33:32],> Intra-Frame Decay,Off,LUT A,LUT B,LUT C;",
+	"hCh9P1O[20:18],> Vector Color,Vectrex P4,Deluxe Blue,White,Red,Purple,Cyan,Blue;",
+	"hCH9P1O[87:85],> Dwell Low Size,1,2,3,4,5,6,7,8;",
+	"hCH9P1O[90:88],> Dwell Mid Growth,Same,+1,+2,+3,+4,+5,+6,+7;",
+	"hCH9P1O[93:91],> Dwell High Growth,Same,+1,+2,+3,+4,+5,+6,+7;",
+	"hCH9P1O[81:80],> Brightness,Reduced,Standard,Bright,Boost;",
+	"hCH9P1O[100:98],> Bloom Width,Off,Thin,Tight,Soft,Normal,Broad,Wide-,Wide;",
+	"hCH9H5P1O[103:101],> Bloom Curve,Minimal,Min+,Mild,Mild+,Moderate,Mod+,Strong-,Strong;",
+	"hCH9P1O[106:104],> Halo,Off,0.25x,0.33x,0.5x,0.75x,1.0x,1.25x,1.5x;",
+	"hCH9H6P1O[109:107],> Halo Curve,Minimal,Min+,Mild,Mild+,Moderate,Mod+,Strong-,Strong;",
+	"hCH9H6P1O[111:110],> Halo Spread,Original,Wide 1,Wide 2,Focus;",
+	"hCH9H6P1O[114:112],> Halo Compression,Off,2,4,6,8,10,16,24;",
+	"hCH9H6P1O[115],> Halo Grid,16x16,8x8;",
+	"hCH9P1O[95:94],> Inter-Frame Decay,Off,Short,Medium,Long;",
+	"hCH9P1O[97:96],> Intra-Frame Decay,Off,LUT A,LUT B,LUT C;",
+	"hCH9P1O[84:82],> Vector Color,Vectrex P4,Deluxe Blue,White,Red,Purple,Cyan,Blue;",
 	"P2,Video Overlay & Geometry;",
 	"P2-;",
-	"P2O[24],Overlay,On,Off;",
-	"h3P2O[10:8],Tint Strength,0,+1,+2,+3,+4,+5,+6,-1;",
-	"h3P2O[27:25],Translucent Blend,50%,60%,70%,80%,10%,20%,30%,40%;",
-	"h3P2O[34:32],Opaque Brightness,50%,60%,70%,80%,10%,20%,30%,40%;",
+	"P2O[63],Overlay,On,Off;",
+	"h3P2O[68:66],Tint Strength,0,+1,+2,+3,+4,+5,+6,-1;",
+	"h3P2O[71:69],Translucent Blend,60%,70%,80%,10%,20%,30%,40%,50%;",
+	"h3P2O[74:72],Opaque Brightness,50%,60%,70%,80%,10%,20%,30%,40%;",
 	"P2-;",
-	"P2O[21:20],Orientation,Normal,90 CCW,90 CW;",
-	"P2O[30],Framing,Overlay,Screen;",
-	"P2O[31],View Area,Standard,Open Matte;",
-	"P2O[29],Offset,Compensated,Zero;",
+	"P2O[76:75],Orientation,Normal,90 CCW,90 CW;",
+	"P2O[64],Framing,Overlay,Screen;",
+	"P2O[65],View Area,Standard,Open Matte;",
+	"P2O[77],Offset,Compensated,Zero;",
 	"P2-;",
-	"d0D1P2O[122],120Hz (720p only),Off,On;",
-	"h0h1P2O[121],Direct Video Scan Rate,15 kHz,31 kHz;",
-	"h2P2O[120],15 kHz Format,480i,240p;",
-	"h1P2O[3:1],CRT Vertical Offset,0,+1,+2,+3,-1,-2,-3;",
+	"d0D1P2O[56],120Hz (720p only),Off,On;",
+	"h0h1P2O[55],Direct Video Scan Rate,15 kHz,31 kHz;",
+	"h2P2O[54],15 kHz Format,480i,240p;",
+	"h1P2O[59:57],CRT Vertical Offset,0,+1,+2,+3,-1,-2,-3;",
+	"h1P2O[62:60],CRT Horizontal Offset,0,+1,+2,+3,-1,-2,-3;",
 	"-;",
 	"P3,System;",
 	"P3-;",
-	"P3O[35],BIOS,Rev 3,Rev 1;",
-	"P3O[11],Quick Boot,Yes,No;",
-	"P3O[23:22],Beam Threshold,Z 20,Z 24,Z 28,Off;",
-	"P3O[12],Port 2,Joystick,VecVoice (SP0256);",
-	"d8P3O[19:18],Speech Level,Normal,Low,High;",
+	"P3O[1],BIOS,Rev 3,Rev 1;",
+	"P3O[2],Quick Boot,Yes,No;",
+	"P3O[4:3],Beam Threshold,Z 20,Z 24,Z 28,Off;",
+	"P3O[8],Port 2,Joystick,VecVoice (SP0256);",
+	"d8P3O[10:9],Speech Level,Normal,Low,High;",
 	"hFP3O[118],Cartridge Autosave,On,Off;",
 	"hFP3R[119],Save Cartridge;",
 	"h4P3-,Cartridge save error;",
 	"P3-;",
-	"P3O[116],Pause when OSD open,Off,On;",
-	"P3O[117],Dim video after 60s,On,Off;",
+	"P3O[5],Pause when OSD open,Off,On;",
+	"P3O[6],Dim video after 60s,On,Off;",
 	"P4,Diagnostic;",
 	"P4-;",
-	"P4O[123],Effects Bypass,Off,On;",
-	"P4O[48:47],Reference Dwell,46,72,Standard,104;",
-	"P4O[50:49],Velocity Comp.,0.3,0.4,0.5,Off;",
-	"P4O[64:63],Halo Correction,None,50%,75%,100%;",
+	"P4O[11],Effects Bypass,Off,On;",
+	"P4O[121:120],Reference Dwell,Standard,104,46,72;",
+	"P4O[123:122],Velocity Comp.,0.3,0.4,0.5,Off;",
+	"P4O[125:124],Halo Correction,100%,75%,50%,None;",
 	"P4-;",
-	"P4O[40:39],Buffer Mode,EOF + VBL,VBL,EOF;",
-	"P4O[17:16],Aspect Ratio,Optimized,Stretched,Pixel Perfect;",
+	"P4O[127:126],Buffer Mode,EOF + VBL,VBL,EOF;",
+	"P4O[79:78],Aspect Ratio,Optimized,Stretched,Pixel Perfect;",
 	"-;",
 	"P5,Core Info;",
 	"P5-;",
@@ -236,7 +239,7 @@ localparam CONF_STR = {
 	"Copied to Custom 1,",
 	"Copied to Custom 2;",
 	// Keep version metadata after selectable entries; MiSTer counts it during action lookup.
-	"v,1;",
+	"v,2;",
 	"V,v1.0.",`BUILD_DATE
 };
 
@@ -272,13 +275,15 @@ pll_vfb pll_vfb
 
 ///////////////////////////////////////////////////
 
-wire [127:0] status;
-vfb_control_pkg::profile_settings_t profile_settings;
-vfb_control_pkg::diagnostic_settings_t diagnostic_settings;
-wire         profile_bypass;
-wire [15:0]  profile_menu_mask;
-wire [127:0] profile_status_in;
-wire         profile_status_set;
+wire [127:0] status, host_status, stored_status;
+wire [35:0]  settings_bus;
+
+profile_settings_t    profile_settings;
+diagnostic_settings_t diagnostic_settings;
+wire                  profile_bypass;
+wire [15:0]           profile_menu_mask;
+wire                  settings_commit, settings_echo, settings_clear, reply_pending, capture_reply;
+
 wire         menu_info_req;
 wire [7:0]   menu_info;
 wire [10:0]  ps2_key;
@@ -296,14 +301,43 @@ always_ff @(posedge clk_sys) begin
 		artwork_valid_seen <= 1'b1;
 end
 wire artwork_loaded = artwork_valid_sync && !artwork_valid_seen;
-// Touch is the only profile for which mask bits 14:9 are all clear.
-wire [15:0] status_menu_mask = {save_available, profile_menu_mask[14:9],
-	status[12], profile_menu_mask[7:5], save_error, profile_menu_mask[3:0]};
+// Bits 11:9 select the profile text. Bit 12 enables the selected Custom controls.
+wire [15:0] status_menu_mask = {save_available, profile_menu_mask[14:9], status[ST_SPEECH],
+                                profile_menu_mask[7:5], save_error, profile_menu_mask[3:0]};
+
+// At startup, wait until Main asserts reset, then completes a settings write with reset clear.
+// Only then can the profile resolver send changes back to Main.
+logic main_reset_seen = 1'b0;
+logic settings_ready  = 1'b0;
+
+always_ff @(posedge clk_sys) begin
+	if (host_status[ST_MAIN_RESET])
+		main_reset_seen <= 1'b1;
+	if (main_reset_seen && settings_commit && !host_status[ST_MAIN_RESET])
+		settings_ready <= 1'b1;
+end
+
+vectrex_status_guard status_guard (
+	.clk_sys       (clk_sys),
+	.ext_bus       (settings_bus),
+	.incoming      (host_status),
+	.stored        (stored_status),
+	.commit        (settings_commit),
+	.echo          (settings_echo),
+	.clear_settings(settings_clear),
+	.reply_pending (reply_pending),
+	.reply_zero    (status == 128'd0),
+	.capture       (capture_reply)
+);
 
 vfb_profile_resolver profile_resolver (
 	.clk_sys             (clk_sys),
-	.reset               (RESET),
-	.status              (status),
+	.reset               (RESET || !settings_ready),
+	.commit              (settings_commit),
+	.echo                (settings_echo),
+	.clear_settings      (settings_clear),
+	.stored              (stored_status),
+	.incoming            (host_status),
 	.profile_resolution  (vfb_profile_res),
 	.video_freeze        (vfb_video_freeze),
 	.video_is_15khz      (video_is_15khz),
@@ -319,8 +353,8 @@ vfb_profile_resolver profile_resolver (
 	.diagnostic_settings (diagnostic_settings),
 	.effects_bypass      (profile_bypass),
 	.menu_mask           (profile_menu_mask),
-	.status_in           (profile_status_in),
-	.status_set          (profile_status_set),
+	.status              (status),
+	.reply_pending       (reply_pending),
 	.info_req            (menu_info_req),
 	.info                (menu_info)
 );
@@ -334,8 +368,9 @@ wire [15:0] ioctl_index;
 wire [32:0] timestamp;
 wire [17:0] backup_addr;
 wire [7:0]  backup_data, backup_q;
-wire        backup_wr, flash_enabled, flash_busy, flash_changed;
-wire [5:0]  flash_sector;
+wire        backup_wr, backup_req, backup_ready, flash_enabled, cart_busy, cart_changed;
+wire [5:0]  cart_sector;
+wire [2:0]  eeprom_kind, score_kind;
 wire [31:0] sd_lba;
 wire        sd_rd, sd_wr, sd_ack, sd_buff_wr;
 wire [13:0] sd_buff_addr;
@@ -349,9 +384,10 @@ hps_io #(.CONF_STR(CONF_STR)) hps_io
 	.HPS_BUS            (HPS_BUS),
 
 	.buttons            (buttons),
-	.status             (status),
-	.status_in          (profile_status_in),
-	.status_set         (profile_status_set),
+	.EXT_BUS            (settings_bus),
+	.status             (host_status),
+	.status_in          (status),
+	.status_set         (capture_reply),
 	.info_req           (menu_info_req),
 	.info               (menu_info),
 	.ps2_key            (ps2_key),
@@ -385,21 +421,25 @@ hps_io #(.CONF_STR(CONF_STR)) hps_io
 	.joystick_1         (joystick_1)
 );
 
-vectrex_flash_save flash_save (
+vectrex_cartridge_save cartridge_save (
 	.clk          (clk_sys),
 	.download     (rom_download),
 	.download_wr  (ioctl_wr && rom_download),
 	.download_data(ioctl_dout),
 	.flash_enabled(flash_enabled),
-	.flash_busy   (flash_busy),
-	.flash_changed(flash_changed),
-	.flash_sector (flash_sector),
+	.eeprom_kind  (eeprom_kind),
+	.score_kind   (score_kind),
+	.cart_busy    (cart_busy),
+	.cart_changed (cart_changed),
+	.cart_sector  (cart_sector),
 	.cart_addr    (backup_addr),
 	.cart_data    (backup_data),
 	.cart_wr      (backup_wr),
+	.cart_req     (backup_req),
+	.cart_ready   (backup_ready),
 	.cart_q       (backup_q),
-	.autosave     (!status[118]),
-	.save_request (status[119]),
+	.autosave     (!status[ST_AUTOSAVE_OFF]),
+	.save_request (host_status[ST_SAVE_CART]),
 	.hold_reset   (save_hold_reset),
 	.pending      (save_pending),
 	.available    (save_available),
@@ -428,8 +468,8 @@ assign AUDIO_MIX = 0;
 logic       bios_factory_q = 1'b0;
 logic [5:0] bios_reset_cnt = 6'd0;
 always_ff @(posedge clk_sys) begin
-	if (bios_factory_q != status[35]) begin
-		bios_factory_q <= status[35];
+	if (bios_factory_q != status[ST_BIOS]) begin
+		bios_factory_q <= status[ST_BIOS];
 		bios_reset_cnt <= 6'd32;
 	end
 	else if (bios_reset_cnt != 0)
@@ -439,15 +479,15 @@ wire bios_reset = bios_reset_cnt != 0;
 
 // Cartridge loading and menu reset stop machine/source timing while the
 // current framebuffer continues presenting. Framework resets restart both.
-wire video_reset = !machine_pll_lock_sync[1] | RESET | status[0] | buttons[1];
-wire delayed_reset = (reset_timeout != 23'd0) &&
-	(reset_timeout <= 23'd999);
-wire machine_reset = video_reset | status[7] | rom_download | save_hold_reset | delayed_reset;
-wire core_reset = machine_reset | bios_reset;
+wire video_reset   = !machine_pll_lock_sync[1] | RESET | host_status[ST_MAIN_RESET] | buttons[1];
+wire delayed_reset = (reset_timeout != 23'd0) && (reset_timeout <= 23'd999);
+wire machine_reset = video_reset | host_status[ST_GAME_RESET] | rom_download |
+                     save_hold_reset | delayed_reset;
+wire core_reset    = machine_reset | bios_reset;
 
 // A delayed warm reset preserves RAM state and skips the GCE startup animation.
 always_ff @(posedge clk_sys) begin
-	if ((rom_download || save_hold_reset) && !status[11])
+	if ((rom_download || save_hold_reset) && !status[ST_QUICK_BOOT])
 		reset_timeout <= 23'd5_000_001;
 	else if (reset_timeout != 23'd0)
 		reset_timeout <= reset_timeout - 1'b1;
@@ -470,7 +510,7 @@ pause #(.RW(8), .GW(8), .BW(8), .CLK_HZ(24_000_000)) pause_inst
 	.reset        (machine_reset),
 	.user_button  (joystick_0[8] | joystick_1[8]),
 	.pause_request(1'b0),
-	.options      ({~status[117], status[116]}),
+	.options      ({~status[ST_DIM], status[ST_OSD_PAUSE]}),
 	.OSD_STATUS   (OSD_STATUS),
 	.r            (vfb_r),
 	.g            (vfb_g),
@@ -495,7 +535,7 @@ wire               t2_reload;
 wire [15:0]        t2_period;
 
 
-// boot2.rom contains artwork; boot.rom remains the startup cartridge.
+// Index 0x80 is boot2.rom artwork. boot.rom loads as a cartridge at index 0.
 assign rom_download = ioctl_download && (ioctl_index[4:0] <= 1) &&
 	(ioctl_index[9:8] == 0) && (ioctl_index != 16'h0080);
 
@@ -505,7 +545,7 @@ vectrex vectrex
 	.pause        (pause_cpu && !bios_reset),
 	.clock        (clk_sys),
 	.bios_factory (bios_factory_q),
-	.boot_reset   (status[0]),
+	.boot_reset   (host_status[ST_MAIN_RESET]),
 	.timestamp    (timestamp),
 
 	.cart_download(rom_download),
@@ -515,14 +555,18 @@ vectrex vectrex
 	.backup_addr  (backup_addr),
 	.backup_data  (backup_data),
 	.backup_wr    (backup_wr),
+	.backup_req   (backup_req),
+	.backup_ready (backup_ready),
 	.backup_q     (backup_q),
+	.eeprom_kind  (eeprom_kind),
+	.score_kind   (score_kind),
 	.flash_enabled(flash_enabled),
-	.flash_busy   (flash_busy),
-	.flash_changed(flash_changed),
-	.flash_sector (flash_sector),
+	.cart_busy    (cart_busy),
+	.cart_changed (cart_changed),
+	.cart_sector  (cart_sector),
 
-	.speech_mode  (status[12]),
-	.speech_level (status[19:18]),
+	.speech_mode  (status[ST_SPEECH]),
+	.speech_level (status[SPEECH_LEVEL_LSB +: 2]),
 	.audio_out    (audio),
 
 	.up_1         (joystick_0[4]),
@@ -574,22 +618,23 @@ vectrex_video vectrex_video
 
 	.hdmi_height        (HDMI_HEIGHT),
 	.direct_video       (direct_video),
-	.direct_video_31khz (status[121]),
-	.crt_15khz_480i     (!status[120]),
-	.crt_vertical_position (status[3:1]),
-	.mode_120hz         (status[122]),
-	.aspect_ratio       (status[17:16]),
+	.direct_video_31khz (status[ST_DIRECT_31KHZ]),
+	.crt_15khz_480i     (!status[ST_CRT_240P]),
+	.crt_vertical_position (status[CRT_VERTICAL_LSB +: 3]),
+	.crt_horizontal_position (status[CRT_HORIZONTAL_LSB +: 3]),
+	.mode_120hz         (status[ST_120HZ]),
+	.aspect_ratio       (status[ASPECT_LSB +: 2]),
 
-	.v_orient           (status[21:20]),
-	.open_matte         (status[31]),
-	.zoom_normal        (status[30]),
-	.vertical_offset    (!status[29]),
-	.beam_threshold     (status[23:22]),
+	.v_orient           (status[ORIENTATION_LSB +: 2]),
+	.open_matte         (status[ST_OPEN_MATTE]),
+	.zoom_normal        (status[ST_SCREEN_FRAMING]),
+	.vertical_offset    (!status[ST_ZERO_OFFSET]),
+	.beam_threshold     (status[BEAM_THRESHOLD_LSB +: 2]),
 
-	.overlay_off        (status[24]),
-	.ovl_tint           (status[10:8]),
-	.ovl_bright         (status[27:25]),
-	.ovl_opaque_bright  (status[34:32]),
+	.overlay_off        (status[ST_OVERLAY_OFF]),
+	.ovl_tint           (status[TINT_LSB +: 3]),
+	.ovl_bright         (status[BLEND_LSB +: 3] + 3'd1),
+	.ovl_opaque_bright  (status[OPAQUE_LSB +: 3]),
 	.profile_settings   (profile_settings),
 	.diagnostic_settings(diagnostic_settings),
 	.effects_bypass     (profile_bypass),
@@ -600,9 +645,8 @@ vectrex_video vectrex_video
 	.ioctl_data         (ioctl_dout),
 	.ioctl_wait         (vfb_ioctl_wait),
 	.artwork_valid      (artwork_valid_125),
-	// Mode 0 promotes completed redraws at VBLANK. Accepted Timer 2 reloads
-	// define normal boundaries; the armed fallback uses ZERO or timeout.
-	.buffer_mode        (status[40:39]),
+	// EOF + VBL presents a completed redraw at vertical blank.
+	.buffer_mode        (status[BUFFER_MODE_LSB +: 2]),
 	.clk_video          (vfb_clk_video),
 	.ce_pixel           (vfb_ce_pixel),
 	.vga_r              (vfb_r),

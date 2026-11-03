@@ -52,8 +52,8 @@
 --     interrupt handling, bus timing, address decoding and open-bus retention.
 --   Analog beam model: calibrated RAMP and blanking timing, sample-and-hold
 --     acquisition and beam-energy accumulation for lines and stationary dots.
---   Cartridge support: 64 KiB PB6 banking and 256 KiB SST39SF020A flash
---     cartridges, including Vector Patrol, Vectorblade and Telengard.
+--   Cartridge support: 64 KiB PB6 banking for Vector Patrol and 256 KiB SST39SF020A flash
+--     cartridges for Vectorblade and Telengard.
 --     Flash programming and erase, persistent per-game saves, automatic
 --     restore, autosave and manual saving.
 --   Audio: replaced the YM2149 module with JT49, corrected signed DAC audio
@@ -97,11 +97,15 @@ port
 	backup_addr   : in  std_logic_vector(17 downto 0) := (others => '0');
 	backup_data   : in  std_logic_vector(7 downto 0) := (others => '0');
 	backup_wr     : in  std_logic := '0';
+	backup_req    : in  std_logic := '0';
+	backup_ready  : out std_logic;
 	backup_q      : out std_logic_vector(7 downto 0);
+	eeprom_kind   : in  std_logic_vector(2 downto 0) := "000";
+	score_kind    : in  std_logic_vector(2 downto 0) := "000";
 	flash_enabled : out std_logic;
-	flash_busy    : out std_logic;
-	flash_changed : out std_logic;
-	flash_sector  : out std_logic_vector(5 downto 0);
+	cart_busy     : out std_logic;
+	cart_changed  : out std_logic;
+	cart_sector   : out std_logic_vector(5 downto 0);
 
 	speech_mode  : in  std_logic;
 	speech_level : in  std_logic_vector(1 downto 0);
@@ -163,6 +167,12 @@ signal cpu_bus_hold_q : std_logic_vector( 7 downto 0) := (others => '0');
 signal ram_cs        : std_logic;
 signal ram_do        : std_logic_vector( 7 downto 0);
 signal ram_cpu_write : std_logic;
+
+signal score_enabled, score_wr, score_ready, score_changed   : std_logic;
+signal score_addr                                            : std_logic_vector(9 downto 0);
+signal score_data, score_backup_q, cart_backup_q             : std_logic_vector(7 downto 0);
+signal score_backup_ready, cart_backup_ready, device_changed : std_logic;
+signal device_sector                                         : std_logic_vector(5 downto 0);
 
 signal rom_cs         : std_logic;
 signal rom_do         : std_logic_vector( 7 downto 0);
@@ -264,6 +274,29 @@ signal random_start    : std_logic := '1';
 signal random_reset    : std_logic;
 signal random_seed     : std_logic_vector(31 downto 0);
 signal random_data     : std_logic_vector(31 downto 0);
+
+component vectrex_high_scores is port (
+	clk, reset, download : in  std_logic;
+	score_kind           : in  std_logic_vector(2 downto 0);
+
+	cpu_read, ram_write : in  std_logic;
+	cpu_addr            : in  std_logic_vector(15 downto 0);
+	cpu_data            : in  std_logic_vector(7 downto 0);
+
+	ram_wr    : out std_logic;
+	ram_addr  : out std_logic_vector(9 downto 0);
+	ram_data  : out std_logic_vector(7 downto 0);
+	ram_ready : in  std_logic;
+
+	changed : out std_logic;
+
+	backup_req, backup_wr : in  std_logic;
+	backup_addr           : in  std_logic_vector(11 downto 0);
+	backup_data           : in  std_logic_vector(7 downto 0);
+	backup_ready          : out std_logic;
+	backup_q              : out std_logic_vector(7 downto 0)
+);
+end component;
 
 component random_xor is port (
 	clock : in  std_logic;
@@ -457,22 +490,64 @@ port map
 
 rom_do <= rom_factory_do when bios_factory = '1' else rom_fixed_do;
 
+score_enabled <= '1' when score_kind /= "000" else '0';
+backup_q      <= score_backup_q     when score_enabled = '1' else cart_backup_q;
+backup_ready  <= score_backup_ready when score_enabled = '1' else cart_backup_ready;
+cart_changed  <= score_changed      when score_enabled = '1' else device_changed;
+cart_sector   <= (others => '0')    when score_enabled = '1' else device_sector;
+
+-- Defer a score write during a CPU RAM write or a CPU read from the same RAM address.
+score_ready <= '1' when reset_machine = '0' and cart_wr = '0' and ram_cpu_write = '0' and
+                        not (ram_cs = '1' and cpu_rw = '1' and
+                             cpu_addr(9 downto 0) = score_addr) else '0';
+
+scores : vectrex_high_scores
+port map (
+	clk        => clock,
+	reset      => reset_machine,
+	download   => cart_download,
+	score_kind => score_kind,
+
+	cpu_read  => cpu_e_fall and cpu_rw,
+	ram_write => ram_cpu_write,
+	cpu_addr  => cpu_addr,
+	cpu_data  => cpu_do,
+
+	ram_wr    => score_wr,
+	ram_addr  => score_addr,
+	ram_data  => score_data,
+	ram_ready => score_ready,
+
+	changed => score_changed,
+
+	backup_req   => backup_req and score_enabled,
+	backup_wr    => backup_wr and score_enabled,
+	backup_addr  => backup_addr(11 downto 0),
+	backup_data  => backup_data,
+	backup_ready => score_backup_ready,
+	backup_q     => score_backup_q
+);
+
 cartridge : entity work.vectrex_cartridge
 port map
 (
 	clock         => clock,
+	reset         => reset_machine,
+	eeprom_kind   => eeprom_kind,
 	download      => cart_download,
 	download_wr   => cart_wr,
 	download_addr => cart_addr,
 	download_data => cart_data,
 	backup_addr   => backup_addr,
 	backup_data   => backup_data,
-	backup_wr     => backup_wr,
-	backup_q      => backup_q,
+	backup_wr     => backup_wr and not score_enabled,
+	backup_req    => backup_req and not score_enabled,
+	backup_ready  => cart_backup_ready,
+	backup_q      => cart_backup_q,
 	flash_enabled => flash_enabled,
-	flash_busy    => flash_busy,
-	flash_changed => flash_changed,
-	flash_sector  => flash_sector,
+	cart_busy     => cart_busy,
+	cart_changed  => device_changed,
+	cart_sector   => device_sector,
 	cpu_strobe    => cpu_e_rise,
 	cpu_addr      => cpu_addr,
 	cpu_data_out  => cpu_do,
@@ -508,6 +583,10 @@ begin
 			write_addr := to_unsigned(16#07F#, write_addr'length);
 			write_data := ram_seed(15 downto 8);
 			write_en   := '1';
+		elsif score_wr = '1' and score_ready = '1' then
+			write_addr := unsigned(score_addr);
+			write_data := score_data;
+			write_en   := '1';
 		end if;
 		if write_en = '1' then
 			work_memory(to_integer(write_addr)) <= write_data;
@@ -534,7 +613,7 @@ rom_cs <= '1' when cpu_addr(15 downto 13) = "111" else '0';
 ram_cpu_write    <= ram_cs and not cpu_rw and rQ and not reset_machine;
 via_read         <= via_cs and cpu_rw;
 via_write        <= via_cs and not cpu_rw;
-via_write_accept <= via_write and cpu_e_rise;
+via_write_accept <= via_write and cpu_e_fall;
 t2_low_write     <= '1' when via_write_accept = '1' and cpu_addr(3 downto 0) = X"8" else '0';
 t2_high_write    <= '1' when via_write_accept = '1' and cpu_addr(3 downto 0) = X"9" else '0';
 
@@ -607,9 +686,9 @@ port map
 via6522_inst : entity work.via6522
 port map(
 	clock    => clock,
-	-- Vectrex VIA PHI2 is the inverse of the 6809 E clock.
-	rising   => cpu_e_fall,
-	falling  => cpu_e_rise,
+	-- VIA PHI2 follows the 6809 E clock.
+	rising   => cpu_e_rise,
+	falling  => cpu_e_fall,
 	reset    => reset_machine,
 	addr     => cpu_addr(3 downto 0),
 	wen      => via_write,

@@ -13,6 +13,7 @@ module vfb_interlacer
 	input  wire              reset,
 	input  wire              enable,
 	input  wire signed [4:0] vertical_offset,
+	input  wire        [9:0] hs_start, hs_end,
 
 	input  wire       ce_pix_in,
 	input  wire [7:0] r_in,
@@ -37,10 +38,7 @@ module vfb_interlacer
 localparam logic  [9:0] H_ACTIVE          = 10'd720;
 localparam logic  [9:0] LINE_SAMPLES      = 10'd884;
 localparam logic  [9:0] HALF_LINE         = LINE_SAMPLES / 10'd2;
-localparam logic  [9:0] HS_START          = 10'd755;
-localparam logic  [9:0] HS_END            = 10'd821;
-localparam logic [18:0] VS_SAMPLES        = 19'(3 * LINE_SAMPLES);
-localparam logic [18:0] VS_END            = HS_START + VS_SAMPLES;
+localparam logic [11:0] VS_SAMPLES        = 12'(3 * LINE_SAMPLES);
 localparam logic [18:0] FIELD_SAMPLES     = 19'(264 * LINE_SAMPLES + HALF_LINE);
 localparam logic [18:0] ACTIVE_START_EVEN = 19'(18 * LINE_SAMPLES);
 localparam logic [18:0] ACTIVE_START_ODD  = ACTIVE_START_EVEN + HALF_LINE;
@@ -87,13 +85,15 @@ logic        active_line_bank = 1'b0;
 logic        output_primed    = 1'b0;
 logic        output_divider   = 1'b0;
 
-(* preserve *) logic signed [4:0] vertical_offset_q = 5'sd0;
 logic signed [19:0] vertical_shift;
 logic        [18:0] active_start_even = ACTIVE_START_EVEN;
 logic        [18:0] active_start_odd  = ACTIVE_START_ODD;
 logic        [18:0] active_end_even   = ACTIVE_END_EVEN;
 logic        [18:0] active_end_odd    = ACTIVE_END_ODD;
-logic        [18:0] field_phase_init  = FIELD_PHASE_INIT;
+wire         [18:0] field_phase_init  = shift_phase(FIELD_PHASE_INIT, vertical_shift);
+
+logic [9:0]  hs_start_q = 10'd755, hs_end_q = 10'd821;
+logic [11:0] vs_end_q   = 12'd3407;
 
 logic [18:0] active_start;
 logic [18:0] active_end;
@@ -119,19 +119,22 @@ interlaced_sample_t interlaced_q;
 wire input_frame_start = ce_pix_in && input_vblank_seen && input_vblank_q && !vblank_in;
 wire output_step       = enable && ce_pix_in && output_divider;
 
-// Shift the active window and phase together: only the porches change,
-// while line-buffer delivery and the half-line field relationship stay fixed.
+// When input vertical blank ends, latch the vertical window and sync positions.
+// Horizontal offset moves sync. Vertical offset moves the window and field phase together.
 always_ff @(posedge clk_sys) begin
-	vertical_offset_q <= vertical_offset;
-	active_start_even <= shift_phase(ACTIVE_START_EVEN, vertical_shift);
-	active_start_odd  <= shift_phase(ACTIVE_START_ODD, vertical_shift);
-	active_end_even   <= shift_phase(ACTIVE_END_EVEN, vertical_shift);
-	active_end_odd    <= shift_phase(ACTIVE_END_ODD, vertical_shift);
-	field_phase_init  <= shift_phase(FIELD_PHASE_INIT, vertical_shift);
+	if (input_frame_start) begin
+		active_start_even <= shift_phase(ACTIVE_START_EVEN, vertical_shift);
+		active_start_odd  <= shift_phase(ACTIVE_START_ODD, vertical_shift);
+		active_end_even   <= shift_phase(ACTIVE_END_EVEN, vertical_shift);
+		active_end_odd    <= shift_phase(ACTIVE_END_ODD, vertical_shift);
+		hs_start_q        <= hs_start;
+		hs_end_q          <= hs_end;
+		vs_end_q          <= {2'b0, hs_start} + VS_SAMPLES;
+	end
 end
 
 always_comb begin
-	case (vertical_offset_q)
+	case (vertical_offset)
 		5'sd4:   vertical_shift = 20'(2 * int'(LINE_SAMPLES));
 		5'sd8:   vertical_shift = 20'(4 * int'(LINE_SAMPLES));
 		5'sd12:  vertical_shift = 20'(6 * int'(LINE_SAMPLES));
@@ -145,8 +148,8 @@ always_comb begin
 	active_end     = output_field ? active_end_odd : active_end_even;
 	current_hblank = output_x >= H_ACTIVE;
 	current_vblank = (field_phase < active_start) || (field_phase >= active_end);
-	current_hsync  = !((output_x >= HS_START) && (output_x < HS_END));
-	current_vsync  = !((field_phase >= HS_START) && (field_phase < VS_END));
+	current_hsync  = !((output_x >= hs_start_q) && (output_x < hs_end_q));
+	current_vsync  = !((field_phase >= {9'd0, hs_start_q}) && (field_phase < {7'd0, vs_end_q}));
 
 	read_address   = active_line_bank ? (11'd720 + {1'b0, output_x}) : {1'b0, output_x};
 	if (output_x >= H_ACTIVE) read_address = 11'd0;

@@ -29,13 +29,14 @@ subsequent launches.
 
 ## Saving
 
-Telengard supports persistent character saving at any **Inn** in the dungeon.
-Saved characters and progress are written to cartridge flash and automatically
-persisted by the core to `Telengard (v1.03).sav` in MiSTer's Vectrex saves directory.
+Save your character at any Inn. Telengard writes the character and progress to
+cartridge flash. The core stores that data in `Telengard (v1.03).sav` in
+MiSTer's Vectrex saves directory.
 
-Cartridge Autosave defaults to On. Wait until the user LED goes out before switching
-games or powering off. With Autosave off, use **System > Save Cartridge** in the core
-menu. Console reset preserves flash contents and pending saves.
+**Cartridge Autosave** is on by default. If you turn it off, choose
+**System > Save Cartridge** after saving at an Inn or leaving calibration with
+**Button 4**. Wait for the user LED to go out before changing games or
+switching off. A console reset preserves flash contents and pending saves.
 
 ## Controls and Interface
 

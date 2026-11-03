@@ -42,7 +42,13 @@ assign       expansion_enabled = interval_expands[segment];
 // Four interval starts share the segment index; the final endpoint is separate.
 logic [18:0] sizes [4];
 logic [18:0] size_tail_q;
-(* ramstyle = "logic" *) logic [23:0] slopes [4]; // unsigned Q0.32
+logic  [3:0] upper_expands_q;
+always_ff @(posedge clk_sys)
+	upper_expands_q <= {size_tail_q > DWELL_SIZE_ONE, sizes[3] > DWELL_SIZE_ONE,
+	                    sizes[2] > DWELL_SIZE_ONE,    sizes[1] > DWELL_SIZE_ONE};
+
+// Size change per unit of dwell dose, stored in units of 2^-32 pixel.
+(* ramstyle = "logic" *) logic [23:0] slopes [4];
 (* ramstyle = "logic" *) logic [23:0] tangents [4];
 logic [1:0]  index_q;
 wire  [1:0]  next_index   = index_q + 2'd1;
@@ -79,7 +85,7 @@ wire  [40:0] trial         = {remainder_q, quotient_q[63]} - {1'b0, divisor_q};
 wire  [63:0] quotient_next = {quotient_q[62:0], !trial[40]};
 
 logic        [37:0] tangent_start_q, tangent_end_q;
-logic signed [23:0] start_scaled_q, end_scaled_q, delta_q;
+logic signed [23:0] start_scaled_q, start_term_q, end_term_q;
 logic        [13:0] interval_width_q;
 
 typedef enum logic [4:0] {
@@ -87,7 +93,7 @@ typedef enum logic [4:0] {
 	CFG_SLOPE_PREP, CFG_SLOPE_MUL, CFG_SLOPE_STORE,
 	CFG_TANGENT_PREP, CFG_TANGENT_MUL, CFG_TANGENT_WEIGHT, CFG_TANGENT_SUM,
 	CFG_DIVIDE_LOAD, CFG_DIVIDE,
-	CFG_COEFF_PREP, CFG_COEFF_MUL, CFG_COEFF_SCALE, CFG_COEFF_STORE
+	CFG_COEFF_PREP, CFG_COEFF_MUL, CFG_COEFF_SCALE, CFG_COEFF_OFFSETS, CFG_COEFF_STORE
 } config_state_t;
 config_state_t state;
 
@@ -167,7 +173,7 @@ always_ff @(posedge clk_sys) begin
 				state             <= CFG_TANGENT_WEIGHT;
 			end
 			CFG_TANGENT_WEIGHT: begin
-				// Register both 24-bit limbs before combining the weighted product.
+				// Weight the low and high 24-bit halves separately before combining their products.
 				tangent_weighted_low_q  <= tangent_product_q[23:0] * weight_sum_q;
 				tangent_weighted_high_q <= tangent_product_q[47:24] * weight_sum_q;
 				state                   <= CFG_TANGENT_SUM;
@@ -200,7 +206,7 @@ always_ff @(posedge clk_sys) begin
 				interval_width_q   <= dwell_width(settings_q[10:9], index_q);
 				derivative_left_q  <= tangents[index_q];
 				derivative_right_q <= tangent_next;
-				delta_q            <= 24'({size_next - sizes[index_q], 2'b00});
+				start_term_q       <= 24'({size_next - sizes[index_q], 2'b00});
 				state              <= CFG_COEFF_MUL;
 			end
 			CFG_COEFF_MUL:      begin
@@ -210,18 +216,24 @@ always_ff @(posedge clk_sys) begin
 			end
 			CFG_COEFF_SCALE:    begin
 				start_scaled_q <= 24'((tangent_start_q + 38'd8192) >> 14);
-				end_scaled_q   <= 24'((tangent_end_q + 38'd8192) >> 14);
-				state          <= CFG_COEFF_STORE;
+				end_term_q     <= 24'((tangent_end_q + 38'd8192) >> 14);
+				state          <= CFG_COEFF_OFFSETS;
+			end
+			CFG_COEFF_OFFSETS:  begin
+				// D is the size change. S and E are the rounded endpoint slopes times the interval width.
+				// Store D-S and E-D for the cubic coefficients.
+				start_term_q <= start_term_q - start_scaled_q;
+				end_term_q   <= end_term_q - start_term_q;
+				state        <= CFG_COEFF_STORE;
 			end
 			CFG_COEFF_STORE:    begin
-				intervals[index_q].a          <= -24'sd2 * delta_q + start_scaled_q + end_scaled_q;
-				intervals[index_q].b          <= 24'sd3 * delta_q - 24'sd2 * start_scaled_q -
-				                                 end_scaled_q;
+				intervals[index_q].a          <= end_term_q - start_term_q;
+				intervals[index_q].b          <= (start_term_q <<< 1) - end_term_q;
 				intervals[index_q].c          <= start_scaled_q;
 				intervals[index_q].d          <= 24'({sizes[index_q], 2'b00});
 				intervals[index_q].lower      <= sizes[index_q];
 				intervals[index_q].upper      <= size_next;
-				interval_expands[index_q]     <= (size_next > DWELL_SIZE_ONE);
+				interval_expands[index_q]     <= upper_expands_q[index_q];
 				intervals[index_q].reciprocal <= dwell_reciprocal(settings_q[10:9], index_q);
 				intervals[index_q].origin     <= dwell_origin(settings_q[10:9], index_q);
 				onset                         <= dwell_origin(settings_q[10:9], 2'd0);

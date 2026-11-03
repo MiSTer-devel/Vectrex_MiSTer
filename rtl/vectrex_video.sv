@@ -39,6 +39,7 @@ module vectrex_video
 	input wire        direct_video_31khz,
 	input wire        crt_15khz_480i,
 	input wire [2:0]  crt_vertical_position,
+	input wire [2:0]  crt_horizontal_position,
 	input wire        mode_120hz,
 	input wire [1:0]  aspect_ratio,
 
@@ -182,11 +183,12 @@ always_ff @(posedge clk_50) begin
 	end
 end
 
-wire  [19:0] control_in = {crt_vertical_position, height_stable_50, mode_120hz, effects_bypass,
+wire  [22:0] control_in = {crt_horizontal_position, crt_vertical_position,
+                          height_stable_50, mode_120hz, effects_bypass,
                           direct_video, direct_video_31khz, crt_15khz_480i};
 (* altera_attribute = {"-name SYNCHRONIZER_IDENTIFICATION FORCED_IF_ASYNCHRONOUS"} *)
-logic [19:0] control_meta = '0, control_sync = '0;
-logic [19:0] control_sync_d = '0, control_stable = '0;
+logic [22:0] control_meta = '0, control_sync = '0;
+logic [22:0] control_sync_d = '0, control_stable = '0;
 
 always_ff @(posedge clk_125) begin
 	control_meta   <= control_in;
@@ -232,10 +234,11 @@ function automatic video_mode_t decode_video_mode(
 	input  logic [11:0] height,
 	input  logic        requested_120hz,
 	input  logic        requested_interlace,
-	input  logic [2:0]  requested_crt_position
+	input  logic [2:0]  requested_crt_position,
+	input  logic [2:0]  horizontal_position
 );
 	video_mode_t mode;
-	logic signed [4:0] crt_offset;
+	logic signed [4:0] crt_offset, horizontal_offset;
 	begin
 		case (requested_crt_position)
 			3'd1:    crt_offset = height < 12'd480 ?  5'sd2 :  5'sd4;
@@ -245,6 +248,15 @@ function automatic video_mode_t decode_video_mode(
 			3'd5:    crt_offset = height < 12'd480 ? -5'sd4 : -5'sd8;
 			3'd6:    crt_offset = height < 12'd480 ? -5'sd6 : -5'sd10;
 			default: crt_offset = 5'sd0;
+		endcase
+		case (horizontal_position)
+			3'd1:    horizontal_offset =  5'sd4;
+			3'd2:    horizontal_offset =  5'sd8;
+			3'd3:    horizontal_offset =  5'sd12;
+			3'd4:    horizontal_offset = -5'sd4;
+			3'd5:    horizontal_offset = -5'sd8;
+			3'd6:    horizontal_offset = -5'sd12;
+			default: horizontal_offset =  5'sd0;
 		endcase
 
 		mode               =      '0;
@@ -284,8 +296,6 @@ function automatic video_mode_t decode_video_mode(
 			mode.optimized_ary   = 13'h1000 | 13'd240;
 			mode.h_total         = 12'd883;
 			mode.v_total         = 12'd263;
-			mode.hs_start        = 12'd755;
-			mode.hs_end          = 12'd821;
 			mode.vs_start        = 12'(13'sd246 - crt_offset);
 			mode.vs_end          = 12'(13'sd249 - crt_offset);
 			mode.pixel_mode      = PIXEL_FRACTIONAL;
@@ -303,8 +313,6 @@ function automatic video_mode_t decode_video_mode(
 			mode.optimized_ary   = 13'h1000 | 13'd480;
 			mode.h_total         = 12'd883;
 			mode.v_total         = 12'd528;
-			mode.hs_start        = 12'd755;
-			mode.hs_end          = 12'd821;
 			mode.vs_start        = 12'(13'sd493 - crt_offset);
 			mode.vs_end          = 12'(13'sd499 - crt_offset);
 			mode.pixel_mode      = PIXEL_FRACTIONAL;
@@ -318,6 +326,11 @@ function automatic video_mode_t decode_video_mode(
 			mode.crt_vertical_offset = crt_offset;
 		end
 
+		if (height < 12'd720) begin
+			// Earlier sync moves the entire active picture right on a CRT.
+			mode.hs_start = 12'(13'sd755 - horizontal_offset);
+			mode.hs_end   = 12'(13'sd821 - horizontal_offset);
+		end
 		decode_video_mode = mode;
 	end
 endfunction
@@ -351,7 +364,7 @@ video_path_mode_t requested_path;
 always_ff @(posedge clk_125) begin
 	request_valid         <= stable_height > 12'd200;
 	requested_path.timing <= decode_video_mode(request_height, request_120hz, request_interlaced,
-	                                          control_stable[19:17]);
+	                                          control_stable[19:17], control_stable[22:20]);
 	requested_path.bypass <= request_bypass;
 end
 
@@ -398,10 +411,12 @@ wire target_path_vblank_entry = pending_path_q.timing.is_interlaced ?
                                 output_vblank_entry_q :
                                 progressive_target_vblank_entry;
 
-wire request_mode_changed = (requested_path.timing.fb_height != active_path_q.timing.fb_height) ||
-    (requested_path.timing.is_120hz != active_path_q.timing.is_120hz) ||
-    (requested_path.timing.is_interlaced != active_path_q.timing.is_interlaced) ||
-    (requested_path.timing.crt_vertical_offset != active_path_q.timing.crt_vertical_offset);
+wire request_mode_changed =
+       (requested_path.timing.fb_height != active_path_q.timing.fb_height)
+    || (requested_path.timing.is_120hz != active_path_q.timing.is_120hz)
+    || (requested_path.timing.is_interlaced != active_path_q.timing.is_interlaced)
+    || (requested_path.timing.hs_start != active_path_q.timing.hs_start)
+    || (requested_path.timing.crt_vertical_offset != active_path_q.timing.crt_vertical_offset);
 wire request_changed      = request_mode_changed || (requested_path.bypass != active_path_q.bypass);
 
 wire profile_path_commit = (mode_state == MODE_WAIT_TARGET_VBLANK) && !transition_restart_q &&
@@ -411,11 +426,15 @@ wire mode_commit         = (mode_state == MODE_WAIT_TIMING_WRAP) && frame_wrap;
 wire timing_reset        = !mode_ready;
 
 logic mode_commit_q = 1'b0;
+// Offset-only changes keep the pixel divider, line buffers and field parity.
 always_ff @(posedge clk_125) begin
 	if (clock_reset_125 || timing_reset)
 		mode_commit_q <= 1'b0;
 	else
-		mode_commit_q <= mode_commit;
+		mode_commit_q <= mode_commit &&
+		                 ((pending_path_q.timing.fb_height != active_path_q.timing.fb_height) ||
+		                  (pending_path_q.timing.is_120hz != active_path_q.timing.is_120hz) ||
+		                  (pending_path_q.timing.is_interlaced != active_path_q.timing.is_interlaced));
 end
 
 logic [1:0] renderer_reset_pipe = 2'b11;
@@ -447,9 +466,9 @@ end
 
 always_ff @(posedge clk_125) begin
 	if (clock_reset_125) begin
-		active_path_q.timing     <= decode_video_mode(12'd720, 1'b0, 1'b0, 3'd0);
+		active_path_q.timing     <= decode_video_mode(12'd720, 1'b0, 1'b0, 3'd0, 3'd0);
 		active_path_q.bypass     <= 1'b1;
-		pending_path_q.timing    <= decode_video_mode(12'd720, 1'b0, 1'b0, 3'd0);
+		pending_path_q.timing    <= decode_video_mode(12'd720, 1'b0, 1'b0, 3'd0, 3'd0);
 		pending_path_q.bypass    <= 1'b1;
 		processed_path_prepare_q <= 1'b0;
 		transition_timing_q      <= 1'b0;
@@ -505,17 +524,16 @@ always_ff @(posedge clk_125) begin
 					pending_path_q <= requested_path;
 					if (!requested_path.bypass) processed_path_prepare_q <= 1'b1;
 					if (active_path_vblank_entry) begin
-						transition_timing_q  <= (requested_path.timing.h_total !=
-						     active_path_q.timing.h_total) ||
-						    (requested_path.timing.v_total != active_path_q.timing.v_total) ||
-						    (requested_path.timing.pixel_mode != active_path_q.timing.pixel_mode) ||
-						    (requested_path.timing.is_interlaced !=
-						     active_path_q.timing.is_interlaced) ||
-						    (requested_path.timing.crt_vertical_offset !=
-						     active_path_q.timing.crt_vertical_offset);
-						transition_restart_q <= (requested_path.timing.fb_width !=
-						     active_path_q.timing.fb_width) ||
-						    (requested_path.timing.fb_height != active_path_q.timing.fb_height);
+						transition_timing_q <=
+						       (requested_path.timing.h_total != active_path_q.timing.h_total)
+						    || (requested_path.timing.v_total != active_path_q.timing.v_total)
+						    || (requested_path.timing.pixel_mode != active_path_q.timing.pixel_mode)
+						    || (requested_path.timing.is_interlaced != active_path_q.timing.is_interlaced)
+						    || (requested_path.timing.crt_vertical_offset != active_path_q.timing.crt_vertical_offset)
+						    || (requested_path.timing.hs_start != active_path_q.timing.hs_start);
+						transition_restart_q <=
+						       (requested_path.timing.fb_width != active_path_q.timing.fb_width)
+						    || (requested_path.timing.fb_height != active_path_q.timing.fb_height);
 						video_freeze_q       <= 1'b1;
 						mode_state           <= request_mode_changed ? MODE_WAIT_TIMING_WRAP
 						                                             : MODE_WAIT_TARGET_VBLANK;
@@ -850,6 +868,8 @@ vfb_interlacer interlacer
 		(interlacer_restart_count != 2'd0)),
 	.enable    (active_mode.is_interlaced),
 	.vertical_offset (active_mode.crt_vertical_offset),
+	.hs_start  (active_mode.hs_start[9:0]),
+	.hs_end    (active_mode.hs_end[9:0]),
 	.ce_pix_in (progressive_ce_pixel),
 	.r_in      (fb_vga_r),
 	.g_in      (fb_vga_g),

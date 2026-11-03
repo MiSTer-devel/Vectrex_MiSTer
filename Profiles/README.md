@@ -25,9 +25,10 @@ resynchronizes.
 - **80s Overdrive:** Hot vectors, heavy bloom and lingering phosphor trails.
 - **Neon Blue:** Electric blue vectors that turn white at their brightest,
   with a subdued blue halo and lingering phosphor trails.
-- **Red Alert:** Red phosphor with strong bloom and halo, plus long trails.
-- **Ultraviolet:** Purple phosphor with strong halo and medium or long trails,
-  depending on resolution.
+- **Red Alert:** Red phosphor with strong bloom and halo. Trails are medium
+  at 240p and long at higher resolutions.
+- **Ultraviolet:** Purple phosphor with a strong halo. Trails are short at
+  240p and medium at higher resolutions.
 - **A Touch of CRT:** Subtle halo and bloom while vectors remain crisp.
 
 The menu and keyboard shortcuts cycle through Cruise Control -> Overdrive ->
