@@ -3,8 +3,7 @@
 // Copyright (C) 2026 Videodr0me
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
-// Applies the bloom source curve, runs the local blur passes, and combines
-// the result with the primary image.
+// Blur the bloom source, then keep the brighter of the blurred result and the primary pixel.
 // ============================================================================
 
 `default_nettype none
@@ -284,9 +283,25 @@ logic [10:0] hc_p1, hc_p2;
 logic        hb_p1, hb_p2;
 logic [17:0] b_p1, b_p2, b_p3;
 
-vfb_blur bloom_pass1 (.clk_sys(clk_sys), .ce_pix(ce_pix), .reset(reset), .active_x_in(ax_pipe[3]), .hblank_in(hb_pipe[3]), .enable(en_p1), .energy_in(bloom_src), .active_x_out(hc_p1), .hblank_out(hb_p1), .energy_out(b_p1));
-vfb_blur bloom_pass2 (.clk_sys(clk_sys), .ce_pix(ce_pix), .reset(reset), .active_x_in(hc_p1), .hblank_in(hb_p1), .enable(en_p2), .energy_in(b_p1), .active_x_out(hc_p2), .hblank_out(hb_p2), .energy_out(b_p2));
-vfb_blur bloom_pass3 (.clk_sys(clk_sys), .ce_pix(ce_pix), .reset(reset), .active_x_in(hc_p2), .hblank_in(hb_p2), .enable(en_p3), .energy_in(b_p2), .active_x_out(), .hblank_out(), .energy_out(b_p3));
+// Pass 1 takes x and active-pixel validity from the same stage as the bloom input.
+vfb_blur bloom_pass1 (
+	.clk_sys(clk_sys), .ce_pix(ce_pix), .reset(reset),
+	.active_x_in(ax_pipe[3]), .hblank_in(!ax_valid_pipe[3]),
+	.enable(en_p1), .energy_in(bloom_src),
+	.active_x_out(hc_p1), .hblank_out(hb_p1), .energy_out(b_p1)
+);
+vfb_blur bloom_pass2 (
+	.clk_sys(clk_sys), .ce_pix(ce_pix), .reset(reset),
+	.active_x_in(hc_p1), .hblank_in(hb_p1),
+	.enable(en_p2), .energy_in(b_p1),
+	.active_x_out(hc_p2), .hblank_out(hb_p2), .energy_out(b_p2)
+);
+vfb_blur bloom_pass3 (
+	.clk_sys(clk_sys), .ce_pix(ce_pix), .reset(reset),
+	.active_x_in(hc_p2), .hblank_in(hb_p2),
+	.enable(en_p3), .energy_in(b_p2),
+	.active_x_out(), .hblank_out(), .energy_out(b_p3)
+);
 
 // Per-width bloom gains include the 0.67 normalization.
 logic [25:0] bloom_scaled_q;

@@ -1,7 +1,29 @@
 # Changelog
 
-For earlier changes, see the
-[commit history](https://github.com/MiSTer-devel/Vectrex_MiSTer/commits/945088b8862c09aa556f3d0c3efa07eeaa1a5b5b/).
+## EEPROM Saves and High Scores [2026-11-03]
+
+- Added automatic high-score and best-time saving for 25 original cartridge
+  ROMs and two homebrew games. The supported titles are Armor Attack, Bedlam,
+  Berzerk, Blitz!, Clean Sweep, Cosmic Chasm, Dark Tower, Fortress of Narzod,
+  Heads Up, Hyperchase, Mine Storm II, Polar Rescue, Pole Position, Rip Off,
+  Scramble, Solar Quest, Spike, Spinball, Star Castle, Star Hawk, Star Ship,
+  Star Trek, Tour de France, Veccy Bird, Vectrexagon, Web Warp and Web Wars.
+- Added EEPROM saves for supported versions of Vector Pilot, Vector Patrol,
+  Thrust, Karl Quappe, Release, Rocks 'n' Saucers and PUCK! v0.53 DS. Vector
+  Pilot's original UNI/O and recognized I2C versions are detected automatically.
+- Cleaned up settings management and reorganized the status bits. Saved core
+  settings from earlier releases do not carry over. Note your settings before
+  upgrading, then reapply them in this version.
+- Corrected the VIA clock phase to follow the 6809 E clock, restoring the
+  connected mountain strokes in Vector Patrol.
+- Corrected VIA shift-register reads and writes during active output,
+  restoring missing final strokes in Vector Patrol's rotating title logo.
+- Tweaked bloom and halo centering and edge behaviour, along with reset and EOF handling.
+- Added horizontal CRT centering in four-pixel steps at 240p, 480p and 480i,
+  moving the complete picture and overlay up to 12 pixels left or right.
+- Updated the README with setup guidance and `MiSTer.ini` examples for
+  multisync CRTs, covering 720p at 45 kHz and 1080p at 67.5 kHz, both at
+  60 Hz refresh.
 
 ## Enhanced Core Rebuild v1.0 [2026-10-18]
 
@@ -71,3 +93,6 @@ For earlier changes, see the
   pause while the OSD is open.
 
 The core requires a 32 MB SDRAM module or larger.
+
+For earlier changes, see the
+[commit history](https://github.com/MiSTer-devel/Vectrex_MiSTer/commits/945088b8862c09aa556f3d0c3efa07eeaa1a5b5b/).

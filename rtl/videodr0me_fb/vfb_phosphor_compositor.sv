@@ -5,11 +5,10 @@
 // Copyright (C) 2026 Videodr0me
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
-// Store the greater of the current frame's intensity, after any
-// intra-frame decay, and the decayed accumulator. A current-frame winner
-// is marked fresh for one stronger decay pass; its first trail is capped
-// at full line energy. An accumulator winner continues with tail decay
-// and is not marked fresh.
+// Keep the brighter of the newly drawn pixel (after intra-frame decay) and the fading pixel.
+// If the newly drawn pixel is nonzero and brighter or tied, mark it fresh. When fading a fresh
+// pixel, limit its starting intensity to full line brightness if the decay factor is below 255.
+// An older pixel that wins uses trail decay on the following pass.
 // The buffer controller waits for composition to finish before displaying the frame.
 // ============================================================================
 
@@ -205,9 +204,10 @@ logic        old_dwell_excess_q;
 logic [7:0]  old_factor_q;
 logic [18:0] old_product_q;
 
-logic [11:0] next_raw_pixel_q;
+// Keep tile pixel selection, the age-map read and the decay-factor lookup on separate clocks.
+(* dont_retime *)
+logic [15:0] next_raw_pixel_q;
 logic [12:0] next_old_pixel_q;
-// Keep age lookup and decay-factor lookup in separate pipeline stages.
 (* dont_retime *)
 logic [3:0]  next_raw_age_q;
 logic [7:0]  next_raw_factor_q;
@@ -227,10 +227,8 @@ wire [15:0] current_tile_id  = {tile_y, tile_x};
 wire [28:0] source_tile_addr = vfb_buffer_base(source_buf_q) + ({13'd0, current_tile_id} << 4);
 wire [28:0] target_tile_addr = vfb_buffer_base(target_buf_q) + ({13'd0, current_tile_id} << 4);
 
-wire [63:0] raw_word         = raw_tile[pixel_index[5:2]];
 wire [63:0] old_word         = source_tile[pixel_index[5:2]];
 wire [5:0]  pixel_bit_offset = {pixel_index[1:0], 4'b0000};
-wire [15:0] raw_pixel        = raw_word[pixel_bit_offset +: 16];
 wire [15:0] old_pixel        = old_word[pixel_bit_offset +: 16];
 
 wire [15:0] selected_inter_factors = inter_decay_factors(inter_mode_q, raw_frame_age);
@@ -248,18 +246,14 @@ wire [10:0] next_old_decay_energy = (next_old_uses_fresh &&
                                     11'd512 :
                                     next_old_pixel_q[10:0];
 
-wire [3:0] raw_age_draw_idx  = raw_tile_dirty ?
-                               ((state == COMP_PIXEL_PRIME) ? raw_pixel[15:12]
-                                                            : next_raw_pixel[15:12]) :
-                               4'd0;
-wire [3:0] raw_age_delta     = reference_draw_idx_q - raw_age_draw_idx;
+wire [3:0] raw_age_delta     = reference_draw_idx_q - next_raw_pixel_q[15:12];
 wire [3:0] raw_pixel_age     = raw_tile_dirty ? age_map_q[{raw_age_delta, 2'b00} +: 4] : 4'd0;
 wire [7:0] staged_raw_factor = vfb_decay_factor(intra_mode_q, next_raw_age_q);
 
 wire [10:0] raw_energy         = raw_bypass_q ? raw_intensity_q : raw_product_q[18:8];
 // Truncation with factors <= 255 strictly reduces every positive old energy.
 wire [10:0] old_decayed_energy = old_product_q[18:8];
-// Clamp accumulated tails below three stored energy units to black.
+// Drop previous-frame pixels below three stored energy units after decay.
 wire [10:0] old_energy = (old_decayed_energy < INTER_FRAME_FLOOR) ? 11'd0 : old_decayed_energy;
 
 wire raw_present = (raw_energy != 11'd0);
@@ -326,7 +320,7 @@ always_ff @(posedge clk_sys) begin
 		old_dwell_excess_q    <=   1'b0;
 		old_factor_q          <=   8'd0;
 		old_product_q         <=  19'd0;
-		next_raw_pixel_q      <=  12'd0;
+		next_raw_pixel_q      <=  16'd0;
 		next_old_pixel_q      <=  13'd0;
 		next_raw_age_q        <=   4'd0;
 		next_raw_factor_q     <=   8'd0;
@@ -439,6 +433,8 @@ always_ff @(posedge clk_sys) begin
 			COMP_RAW_RECEIVE: begin
 				if (read_data_valid) begin
 					raw_tile[read_beat] <= read_data;
+					// Capture pixel 0 from the first DDR beat so COMP_PIXEL_PRIME can look up its draw age.
+					if (read_beat == 4'd0) next_raw_pixel_q <= read_data[15:0];
 					if (read_beat == 4'd15) begin
 						pixel_index  <= 6'd0;
 						tile_nonzero <= 1'b0;
@@ -450,7 +446,7 @@ always_ff @(posedge clk_sys) begin
 			end
 
 			COMP_PIXEL_PRIME: begin
-				next_raw_pixel_q      <= raw_tile_dirty ? raw_pixel[11:0] : 12'd0;
+				if (!raw_tile_dirty) next_raw_pixel_q <= 16'd0;
 				next_old_pixel_q      <= source_tile_dirty ? {old_pixel[15], old_pixel[11:0]}
 				                                           : 13'd0;
 				next_raw_age_q        <= raw_pixel_age;
@@ -473,11 +469,9 @@ always_ff @(posedge clk_sys) begin
 			COMP_PIXEL_RAW: begin
 				raw_product_q <= raw_intensity_q * raw_factor_q;
 				if (pixel_index != 6'd63) begin
-					next_raw_pixel_q <= raw_tile_dirty ? next_raw_pixel[11:0] : 12'd0;
-					next_old_pixel_q <= source_tile_dirty ?
-					                    {next_old_pixel[15], next_old_pixel[11:0]} :
-					                    13'd0;
-					next_raw_age_q   <= raw_pixel_age;
+					next_raw_pixel_q <= raw_tile_dirty ? next_raw_pixel : 16'd0;
+					next_old_pixel_q <= source_tile_dirty ? {next_old_pixel[15], next_old_pixel[11:0]}
+					                                      : 13'd0;
 				end
 				state <= COMP_PIXEL_OLD;
 			end
@@ -485,7 +479,7 @@ always_ff @(posedge clk_sys) begin
 			COMP_PIXEL_OLD: begin
 				old_product_q <= old_intensity_q * old_factor_q;
 				if (pixel_index != 6'd63) begin
-					next_raw_factor_q <= staged_raw_factor;
+					next_raw_age_q    <= raw_pixel_age;
 					next_old_factor_q <= next_old_uses_fresh ? fresh_decay_factor_q
 					                                         : tail_decay_factor_q;
 				end
@@ -496,6 +490,7 @@ always_ff @(posedge clk_sys) begin
 				blend_energy_q       <= selected_blend_energy;
 				blend_fresh_q        <= raw_wins;
 				blend_dwell_excess_q <= raw_wins ? raw_dwell_excess_q : old_dwell_excess_q;
+				if (pixel_index != 6'd63) next_raw_factor_q <= staged_raw_factor;
 				state                <= COMP_PIXEL_STORE;
 			end
 

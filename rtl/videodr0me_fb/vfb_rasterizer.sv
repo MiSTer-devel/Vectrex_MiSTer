@@ -293,7 +293,7 @@ wire step_x_equal = (a_x == read_last_x);
 wire step_y_equal = (a_y == read_last_y);
 wire step_x_unit  = unit_step(a_x, read_last_x);
 wire step_y_unit  = unit_step(a_y, read_last_y);
-wire step_is_diag = step_x_unit && step_y_unit;
+wire step_is_diag = (hist_count != 0) && step_x_unit && step_y_unit;
 wire is_neighbor  = (step_x_equal || step_x_unit) &&
                     (step_y_equal || step_y_unit);
 
@@ -419,6 +419,7 @@ always_ff @(posedge clk_sys) begin
 		B_IDLE: begin
 			if (a_valid && b_output_free) begin
 				if (a_eof) begin
+					hist_count                       <= 0;
 					pixel_replace                    <= 0;
 					pixel_dwell_high_dose            <= 0;
 					s2_dwell_excess                  <= 0;

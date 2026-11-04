@@ -1,4 +1,4 @@
-// Presentation control codes and settings shared by the resolver and video pipeline.
+// Core status-bit assignments, display control values and packed Custom profile settings.
 // Copyright (C) 2026 Videodr0me
 // SPDX-License-Identifier: GPL-2.0-or-later
 `default_nettype none
@@ -112,22 +112,23 @@ localparam logic [1:0] GEOMETRY_480  = 2'd1;
 localparam logic [1:0] GEOMETRY_720  = 2'd2;
 localparam logic [1:0] GEOMETRY_1080 = 2'd3;
 
-// Field order is the 36-bit profile interface, from most to least significant.
+// Add new fields at the top of the struct so they occupy the high bits
+// and preserve existing Custom menu bit positions. Keep the width within CUSTOM_CAPACITY.
 typedef struct packed {
-	logic [2:0] dwell_high_growth;
 	logic       halo_grid;
 	logic [2:0] halo_knee;
-	logic [2:0] dwell_low_size;
-	logic [2:0] dwell_mid_growth;
-	logic [1:0] tone;
-	logic [2:0] bloom_width;
-	logic [2:0] bloom_curve;
-	logic [2:0] halo_gain;
-	logic [2:0] halo_curve;
 	logic [1:0] halo_spread;
-	logic [1:0] inter_decay;
+	logic [2:0] halo_curve;
+	logic [2:0] halo_gain;
+	logic [2:0] bloom_curve;
+	logic [2:0] bloom_width;
 	logic [1:0] intra_decay;
+	logic [1:0] inter_decay;
+	logic [2:0] dwell_high_growth;
+	logic [2:0] dwell_mid_growth;
+	logic [2:0] dwell_low_size;
 	logic [2:0] color;
+	logic [1:0] tone;
 } profile_settings_t;
 
 typedef struct packed {
@@ -135,6 +136,29 @@ typedef struct packed {
 	logic [1:0] velocity_comp;
 	logic [1:0] reference_dwell;
 } diagnostic_settings_t;
+
+// VECTREX_v2.CFG bit positions. CONF_STR uses the corresponding decimal ranges.
+localparam int ST_MAIN_RESET = 0, ST_BIOS = 1, ST_QUICK_BOOT = 2, BEAM_THRESHOLD_LSB = 3;
+localparam int ST_OSD_PAUSE = 5, ST_DIM = 6, ST_GAME_RESET = 7;
+localparam int ST_SPEECH = 8, SPEECH_LEVEL_LSB = 9;
+localparam int ST_BYPASS = 11, PROFILE_LSB = 12, CUSTOM_INIT_BIT = 15;
+
+localparam int CUSTOM1_LSB = 16, CUSTOM2_LSB = 80, CUSTOM_CAPACITY = 38;
+localparam int PROFILE_BITS = $bits(profile_settings_t);
+
+localparam int CRT_LSB = CUSTOM1_LSB + CUSTOM_CAPACITY;
+localparam int ST_CRT_240P = CRT_LSB, ST_DIRECT_31KHZ = CRT_LSB + 1, ST_120HZ = CRT_LSB + 2;
+localparam int CRT_VERTICAL_LSB = CRT_LSB + 3, CRT_HORIZONTAL_LSB = CRT_LSB + 6;
+
+localparam int VIEW_LSB = 63, ART_LSB = 66, GEOMETRY_LSB = 75;
+localparam int ST_OVERLAY_OFF = VIEW_LSB, ST_SCREEN_FRAMING = VIEW_LSB + 1;
+localparam int ST_OPEN_MATTE = VIEW_LSB + 2;
+localparam int TINT_LSB = ART_LSB, BLEND_LSB = ART_LSB + 3, OPAQUE_LSB = ART_LSB + 6;
+localparam int ORIENTATION_LSB = GEOMETRY_LSB, ST_ZERO_OFFSET = GEOMETRY_LSB + 2;
+localparam int ASPECT_LSB = GEOMETRY_LSB + 3;
+
+localparam int ST_AUTOSAVE_OFF = CUSTOM2_LSB + CUSTOM_CAPACITY, ST_SAVE_CART = ST_AUTOSAVE_OFF + 1;
+localparam int DIAG_LSB = 120, BUFFER_MODE_LSB = DIAG_LSB + $bits(diagnostic_settings_t);
 
 endpackage
 

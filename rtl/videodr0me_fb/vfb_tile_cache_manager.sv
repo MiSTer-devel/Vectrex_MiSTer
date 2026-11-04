@@ -16,6 +16,7 @@ module vfb_tile_cache_manager #(
 ) (
 	input  wire  clk_sys,
 	input  wire  reset,
+	output wire  reset_active,
 
 	input  wire  [11:0] FB_HEIGHT,
 
@@ -43,7 +44,7 @@ module vfb_tile_cache_manager #(
 	input  wire  [BUF_IDX_W-1:0]    buf_draw,
 	input  wire  [BUF_IDX_W-1:0]    buf_display,
 	input  wire                     display_valid,
-	input  wire                     has_draw_buf,
+	input  wire                     draw_ready,
 	input  wire  [BUFFER_COUNT-1:0] buf_draw_hot,
 
 	// DDRAM fill
@@ -85,6 +86,7 @@ localparam integer CACHE_IDX_W = $clog2(CACHE_COUNT);
 logic [1:0] reset_delay = 2'b11;
 always_ff @(posedge clk_sys) reset_delay <= {reset_delay[0], reset};
 wire cache_reset = reset_delay[1];
+assign reset_active = reset || (|reset_delay);
 
 localparam TILEMAP_ADDR_W = 15;
 localparam TILEMAP_DEPTH  = 1 << TILEMAP_ADDR_W;
@@ -691,13 +693,7 @@ wire fill_tag_allocation = (rmw_state == RMW_WAIT_FILL) && fill_data_valid &&
 wire tag_map_unstable    = (rmw_state == RMW_FLUSH_ALL) ||
                            fast_tag_allocation || fill_tag_allocation;
 
-// Accept pixels after initialization while no full flush is active.
-logic manager_ready = 0;
-always_ff @(posedge clk_sys) begin
-	manager_ready <= has_draw_buf && clearer_init_done;
-end
-
-assign s0_ready = (rmw_state == RMW_IDLE) && manager_ready &&
+assign s0_ready = (rmw_state == RMW_IDLE) && clearer_init_done && draw_ready &&
                   !flush_req && (!s0_valid || r_hit_valid);
 
 always_ff @(posedge clk_sys) begin

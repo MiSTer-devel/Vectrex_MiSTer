@@ -12,6 +12,7 @@
 module vfb_ddr_arbiter (
 	input  wire  clk_sys,
 	input  wire  rst_sys,
+	input  wire  cache_reset_active,
 
 	// DDRAM interface
 	input  wire         DDRAM_BUSY,
@@ -86,8 +87,8 @@ module vfb_ddr_arbiter (
 	output logic [63:0] artwork_read_data,
 	output logic        artwork_read_data_valid,
 
-	output wire         reset_busy,         // High while processing a reset request and draining outstanding bursts.
-	output wire         reset_busy_d        // Value captured by reset_busy on the next clk_sys edge.
+	output wire         reset_busy,         // Pauses new artwork events while outstanding bursts drain.
+	output wire         fb_reset_d          // Framebuffer clients may reset on the next clock.
 );
 import vfb_layout_pkg::*;
 
@@ -149,8 +150,8 @@ logic reset_pending = 0;
 wire  rst_active    = reset_start || reset_pending;
 logic reset_busy_q  = 1'b1;
 always_ff @(posedge clk_sys) reset_busy_q <= rst_active;
-wire [6:0] arb_select_allowed = rst_sys ? (upload_write_ready ? SELECT_UPLOAD_WRITE : 7'd0)
-                                        : arb_select;
+wire [6:0] arb_select_allowed = (rst_sys || cache_reset_active) ?
+                                (upload_write_ready ? SELECT_UPLOAD_WRITE : 7'd0) : arb_select;
 
 // Sample the one-hot-selected payload independently; arb_select_q accepts it.
 always_ff @(posedge clk_sys) begin
@@ -235,7 +236,9 @@ assign compose_write_advance = (arb_state == ARB_COMPOSE_WRITE) &&
 assign upload_write_advance = (arb_state == ARB_UPLOAD_WRITE) &&
 	write_beat;
 assign reset_busy = reset_busy_q;
-assign reset_busy_d = rst_active;
+// The upload has its own reset and can finish while the framebuffer is held in reset.
+assign fb_reset_d = (rst_sys || reset_pending) &&
+                    (arb_state == ARB_IDLE || arb_state == ARB_UPLOAD_WRITE);
 
 // The valid pulse qualifies return data; discarded requests return zero locally.
 always_ff @(posedge clk_sys) begin
@@ -395,7 +398,7 @@ always_ff @(posedge clk_sys) begin
 				burst_counter <= burst_counter + 1'b1;
 				if (burst_counter == burst_target - 1'b1) begin
 					internal_we <= 0;
-					if (!rst_active) upload_write_done <= 1;
+					upload_write_done <= 1;
 					arb_state <= ARB_IDLE;
 				end
 			end

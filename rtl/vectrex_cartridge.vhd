@@ -6,7 +6,8 @@
 -- Standard cartridges occupy 0000-7FFF; PB6 selects the half of a 64K image.
 -- The SST39SF020A mapper occupies 0000-BFFF in each of four 48K banks selected
 -- by IRQ and PB6.
--- Cartridge state survives machine reset and is replaced by the next download.
+-- Standard cartridges with serial EEPROM use a reserved area of the cartridge RAM.
+-- A console reset preserves stored data and lets programming already in progress finish.
 ---------------------------------------------------------------------------------
 
 library ieee;
@@ -14,9 +15,12 @@ use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
 entity vectrex_cartridge is
+generic (EEPROM_WRITE_CLOCKS : natural := 120000);
 port
 (
 	clock         : in  std_logic;
+	reset         : in  std_logic := '0';
+	eeprom_kind   : in  std_logic_vector(2 downto 0) := "000";
 
 	download      : in  std_logic;
 	download_wr   : in  std_logic;
@@ -26,11 +30,13 @@ port
 	backup_addr   : in  std_logic_vector(17 downto 0) := (others => '0');
 	backup_data   : in  std_logic_vector(7 downto 0) := (others => '0');
 	backup_wr     : in  std_logic := '0';
+	backup_req    : in  std_logic := '0';
+	backup_ready  : out std_logic := '0';
 	backup_q      : out std_logic_vector(7 downto 0);
 	flash_enabled : out std_logic;
-	flash_busy    : out std_logic;
-	flash_changed : out std_logic := '0';
-	flash_sector  : out std_logic_vector(5 downto 0) := (others => '0');
+	cart_busy     : out std_logic;
+	cart_changed  : out std_logic := '0';
+	cart_sector   : out std_logic_vector(5 downto 0) := (others => '0');
 
 	cpu_strobe   : in  std_logic;
 	cpu_addr     : in  std_logic_vector(15 downto 0);
@@ -100,6 +106,46 @@ architecture rtl of vectrex_cartridge is
 	signal memory_addr   : unsigned(17 downto 0);
 	signal memory_data   : std_logic_vector(7 downto 0);
 	signal memory_wr     : std_logic;
+	signal memory_q      : std_logic_vector(7 downto 0);
+	signal flash_active  : std_logic;
+	signal backup_accept : std_logic;
+	signal backup_tag    : std_logic := '0';
+	signal backup_ff     : std_logic := '0';
+	signal backup_meta   : std_logic := '0';
+	signal backup_mapped : unsigned(17 downto 0);
+	signal backup_valid  : std_logic;
+	signal ee_kind       : std_logic_vector(2 downto 0);
+	signal ee_busy       : std_logic;
+	signal ee_changed    : std_logic;
+	signal ee_line       : std_logic;
+	signal ee_protect    : std_logic_vector(1 downto 0);
+	signal ee_restore    : std_logic;
+	signal ee_req        : std_logic;
+	signal ee_wr         : std_logic;
+	signal ee_tag        : std_logic := '0';
+	signal ee_addr       : std_logic_vector(7 downto 0);
+	signal ee_data       : std_logic_vector(7 downto 0);
+
+	component vectrex_eeprom is
+	generic (WRITE_CLOCKS : integer := 120000);
+	port (
+		clk, download, reset : in  std_logic;
+		kind                 : in  std_logic_vector(2 downto 0);
+
+		pb6, host_low, irq_n : in  std_logic;
+		line_out, busy       : out std_logic;
+
+		changed         : out std_logic;
+		protect         : out std_logic_vector(1 downto 0);
+		protect_restore : in  std_logic;
+		protect_data    : in  std_logic_vector(1 downto 0);
+
+		mem_req, mem_wr    : out std_logic;
+		mem_addr, mem_data : out std_logic_vector(7 downto 0);
+		mem_q              : in  std_logic_vector(7 downto 0);
+		mem_ready          : in  std_logic
+	);
+	end component;
 
 	function mapped_addr
 	(
@@ -119,35 +165,95 @@ architecture rtl of vectrex_cartridge is
 
 begin
 	flash_enabled <= '1' when cart_mode = CART_4X48 else '0';
-	flash_busy    <= '1' when erase_active = '1' or program_state /= PROGRAM_IDLE else '0';
+	flash_active  <= '1' when erase_active = '1' or program_state /= PROGRAM_IDLE else '0';
+	cart_busy     <= flash_active or ee_busy;
+	ee_kind       <= eeprom_kind when cart_mode = CART_STANDARD else "000";
 
-	-- Port A serves CPU reads. Port B handles cartridge loading and flash
-	-- updates, and reads or restores persistent flash data for save files.
+	eeprom : vectrex_eeprom
+	generic map (WRITE_CLOCKS => EEPROM_WRITE_CLOCKS)
+	port map (
+		clk      => clock,
+		download => download,
+		reset    => reset,
+		kind     => ee_kind,
+
+		pb6      => pb6_level,
+		irq_n    => irq_n,
+		line_out => ee_line,
+		busy     => ee_busy,
+		host_low => pb6_oe and not pb6_out,
+
+		changed         => ee_changed,
+		protect         => ee_protect,
+		protect_restore => ee_restore,
+		protect_data    => backup_data(1 downto 0),
+
+		mem_req   => ee_req,
+		mem_wr    => ee_wr,
+		mem_addr  => ee_addr,
+		mem_data  => ee_data,
+		mem_q     => memory_q,
+		mem_ready => ee_tag
+	);
+
+	-- EEPROM bytes occupy 10000-100FF in the unused part of standard-cartridge RAM.
+	-- EEPROM data starts at byte 0 of save sector 0. Only UNI/O stores protection bits at
+	-- byte 0x100. Unused bytes read as 0xFF.
+	backup_valid <= '1' when ee_kind = "000" else
+	                '1' when ee_kind = "011" and unsigned(backup_addr) < 32 else
+	                '0' when ee_kind = "011" else
+	                '1' when unsigned(backup_addr) < 128 else
+	                '1' when ee_kind = "010" and unsigned(backup_addr) < 256 else '0';
+	backup_mapped <= unsigned(backup_addr) when ee_kind = "000" else
+	                 to_unsigned(16#10000#, 18) + resize(unsigned(backup_addr(7 downto 0)), 18);
+	backup_accept <= backup_req and not download and not flash_active and not ee_req;
+	ee_restore    <= '1' when backup_accept = '1' and backup_wr = '1' and
+	                        ee_kind = "001" and unsigned(backup_addr) = 256 else '0';
+
+	-- Port A supplies CPU reads. On port B, save requests wait for downloads, flash operations
+	-- and EEPROM requests. Each client uses its ready signal to qualify the returned data.
 	memory_addr <= download_mapped when download = '1' and download_store = '1' else
 	               (others => '0') when download = '1' else
 	               erase_base + erase_count when erase_active = '1' else
 	               program_addr when program_state = PROGRAM_WRITE else
-	               unsigned(backup_addr);
+	               to_unsigned(16#10000#, 18) + resize(unsigned(ee_addr), 18) when ee_req = '1' else
+	               backup_mapped;
 	memory_data <= download_data when download = '1' else
 	               X"FF" when erase_active = '1' else
 	               program_old and program_data when program_state = PROGRAM_WRITE else
+	               ee_data when ee_req = '1' else
 	               backup_data;
 	memory_wr   <= download_wr and download_store when download = '1' else
 	               '1' when erase_active = '1' or program_state = PROGRAM_WRITE else
-	               backup_wr;
+	               ee_wr when ee_req = '1' else
+	               backup_wr and backup_accept and backup_valid;
 	process(clock)
 	begin
 		if rising_edge(clock) then
-			cpu_data_q <= cart_memory(to_integer(cpu_mapped));
-			backup_q   <= cart_memory(to_integer(memory_addr));
+			cpu_data_q   <= cart_memory(to_integer(cpu_mapped));
+			memory_q     <= cart_memory(to_integer(memory_addr));
+			backup_tag   <= backup_accept;
+			ee_tag       <= ee_req and not download;
+			backup_ready <= backup_tag and not download;
+			backup_ff    <= not backup_valid;
+			backup_meta  <= ee_restore;
+			if ee_kind = "001" and unsigned(backup_addr) = 256 then backup_meta <= '1'; end if;
+			if backup_tag = '1' then
+				if backup_meta = '1' then backup_q <= "000000" & ee_protect;
+				elsif backup_ff = '1' then backup_q <= X"FF";
+				else backup_q <= memory_q;
+				end if;
+			end if;
 			if memory_wr = '1' then
 				cart_memory(to_integer(memory_addr)) <= memory_data;
 			end if;
 		end if;
 	end process;
 
-	-- A standard 64K cartridge and every 4x48K cartridge pull PB6 high.
-	pb6_level <= pb6_out when pb6_oe = '1' else
+	-- With PB6 released, an enabled EEPROM supplies the pin level. Without an EEPROM, PB6 reads
+	-- high for PB6-banked and four-bank cartridges, and low for smaller standard cartridges.
+	pb6_level <= pb6_out and ee_line when pb6_oe = '1' else
+	             ee_line when ee_kind /= "000" else
 	             '1'     when cart_mode = CART_4X48 else
 	             addr_mask(15);
 	pb6_in    <= pb6_level;
@@ -181,15 +287,16 @@ begin
 	process(clock)
 	begin
 		if rising_edge(clock) then
-			download_q    <= download;
-			flash_changed <= '0';
+			download_q   <= download;
+			cart_changed <= ee_changed;
+			if ee_changed = '1' then cart_sector <= (others => '0'); end if;
 			if download = '0' then
 				if program_state = PROGRAM_WRITE and (program_old and program_data) /= program_old then
-					flash_changed <= '1';
-					flash_sector  <= std_logic_vector(program_addr(17 downto 12));
+					cart_changed <= '1';
+					cart_sector  <= std_logic_vector(program_addr(17 downto 12));
 				elsif erase_active = '1' and erase_count = 4095 then
-					flash_changed <= '1';
-					flash_sector  <= std_logic_vector(erase_base(17 downto 12));
+					cart_changed <= '1';
+					cart_sector  <= std_logic_vector(erase_base(17 downto 12));
 				end if;
 			end if;
 

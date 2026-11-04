@@ -144,9 +144,14 @@ logic [COARSE_W-1:0] coarse_width;
 logic [17:0]         h_sum;
 logic [13:0]         h_max;
 
-wire       line_start                = ce_pix && hblank_d && !source_in_hblank_q;
-wire       source_line_end           = ce_pix && !reduce_hblank_d && reduce_hblank_q;
-wire       source_frame_active_start = ce_pix && source_vblank_d && !source_vblank_q;
+// Detect frame start at the same pixel stage as line_start. Count the first active source line
+// as row 0 before applying the reconstruction delay.
+wire line_start        = ce_pix && hblank_d && !source_in_hblank_q;
+wire recon_frame_start = ce_pix && source_vblank_q && !source_in_vblank_q;
+
+wire source_line_end           = ce_pix && !reduce_hblank_d && reduce_hblank_q;
+wire source_frame_active_start = ce_pix && source_vblank_d && !source_vblank_q;
+
 wire [3:0] grid_phase_last           = halo_grid_8 ? 4'd7 : 4'd15;
 wire [3:0] grid_prefetch_phase       = halo_grid_8 ? 4'd2 : 4'd10;
 wire [3:0] grid_read_phase           = halo_grid_8 ? 4'd3 : 4'd11;
@@ -253,8 +258,8 @@ logic [7:0]  completed_rows [0:1];
 logic [11:0] source_line_y;
 logic [11:0] prev_frame_lines;
 
-wire [11:0] source_full_line_for_line = source_frame_active_start ? 12'd0 : source_line_y;
-wire        source_epoch_for_line     = source_frame_active_start ? next_source_epoch : source_epoch;
+wire [11:0] source_full_line_for_line = recon_frame_start ? 12'd0 : source_line_y;
+wire        source_epoch_for_line     = recon_frame_start ? next_source_epoch : source_epoch;
 wire        recon_prev_frame          = (source_full_line_for_line < line_delay);
 wire        recon_epoch               = recon_prev_frame ? ~source_epoch_for_line : source_epoch_for_line;
 wire [11:0] recon_line                = recon_prev_frame ?
@@ -1562,7 +1567,7 @@ always_ff @(posedge clk_sys) begin
 			line_decode_q.v_weight       <= line_coord_q.v_weight;
 		end
 
-		if (source_frame_active_start) begin
+		if (recon_frame_start) begin
 			prev_frame_lines <= (source_line_y != 12'd0) ? source_line_y : active_height_q;
 			source_line_y    <= 12'd1;
 		end else if (line_start) begin

@@ -627,12 +627,14 @@ begin
 
                 if falling = '1' then
                     shift_timer_tick <= timer_b_tick;
-                    if trigger_serial = '1' and shift_mode_control /= "000" then
+                    if trigger_serial = '1' and shift_mode_control /= "000" and
+                       not (ren = '1' and shift_mode_control = "110" and shift_active = '1') then
                         if shift_clk_sel /= "11" then
                             shift_clock <= '1';
                             shift_clock_d <= '1';
                         end if;
-                        -- Mode 110 emits its first CB2 bit three VIA cycles after the SR access.
+                        -- In shift-out mode 110, an SR write or idle SR read starts output after three VIA cycles.
+                        -- Reading an active SR restarts the byte count without restarting the shift clock.
                         if shift_mode_control = "110" then
                             shift_start_wait <= 2;
                         else
@@ -663,12 +665,16 @@ begin
                     shift_reg <= X"FF";
                     ser_cb2_o <= '1';
                 elsif falling = '1' then
+                    -- If an SR write coincides with an output shift, CB2 gets bit 7 of the old byte.
+                    -- The shift register loads the new byte on that same edge.
+                    if shift_dir='1' and shift_tick_f = '1' then
+                        ser_cb2_o <= shift_reg(7);
+                    end if;
                     if wen = '1' and addr = X"A" then
                         shift_reg <= data_in;
-                    elsif shift_dir='1' and shift_tick_f = '1' then -- output
-                        ser_cb2_o <= shift_reg(7);
+                    elsif shift_dir='1' and shift_tick_f = '1' then
                         shift_reg <= shift_reg(6 downto 0) & shift_reg(7);
-                    elsif shift_dir='0' and shift_tick_r = '1' then -- input
+                    elsif shift_dir='0' and shift_tick_r = '1' then
                         shift_reg <= shift_reg(6 downto 0) & cb2_d1;
                     end if;
                 end if;
